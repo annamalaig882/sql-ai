@@ -1,0 +1,395 @@
+Delete duplicates safely
+1. Concept Explanation
+
+What it is: Removing duplicate rows while keeping one instance.
+
+Why it is needed: Data cleanup, storage optimization, data integrity.
+
+Where it is used: Database maintenance, ETL processes, data migration.
+
+2. Safe Deletion Methods
+
+sql
+-- Method 1: Using CTE with ROW_NUMBER() (Recommended)
+WITH DuplicatesCTE AS (
+    SELECT *,
+        ROW_NUMBER() OVER (
+            PARTITION BY column1, column2 
+            ORDER BY id  -- Keep the lowest/highest ID
+        ) AS RowNum
+    FROM table
+)
+DELETE FROM DuplicatesCTE WHERE RowNum > 1;
+
+-- Method 2: Using temporary table
+SELECT DISTINCT * INTO #TempTable FROM OriginalTable;
+TRUNCATE TABLE OriginalTable;
+INSERT INTO OriginalTable SELECT * FROM #TempTable;
+DROP TABLE #TempTable;
+
+-- Method 3: Using GROUP BY (for simple cases)
+DELETE t1
+FROM table t1
+INNER JOIN table t2 
+    ON t1.column1 = t2.column1 
+    AND t1.column2 = t2.column2
+    AND t1.id > t2.id;  -- Keep the record with smaller ID
+3. Simple Example
+
+sql
+-- Safely delete duplicate emails, keeping the earliest record
+WITH DuplicateEmails AS (
+    SELECT 
+        EmployeeID,
+        Email,
+        ROW_NUMBER() OVER (
+            PARTITION BY Email 
+            ORDER BY HireDate, EmployeeID  -- Keep earliest hire
+        ) AS RowNum
+    FROM Employees
+    WHERE Email IS NOT NULL
+)
+DELETE FROM DuplicateEmails WHERE RowNum > 1;
+
+-- Delete duplicate orders (same customer, same day)
+WITH DuplicateOrders AS (
+    SELECT 
+        OrderID,
+        CustomerID,
+        CAST(OrderDate AS DATE) AS OrderDateOnly,
+        ROW_NUMBER() OVER (
+            PARTITION BY CustomerID, CAST(OrderDate AS DATE)
+            ORDER BY OrderID  -- Keep first order
+        ) AS RowNum
+    FROM Orders
+)
+DELETE FROM DuplicateOrders WHERE RowNum > 1;
+4. Practical / Interview Example
+Problem: Clean up product catalog with duplicate products, merging attributes.
+
+Solution:
+
+sql
+-- First, identify duplicates and decide which to keep
+WITH ProductDuplicates AS (
+    SELECT 
+        ProductID,
+        ProductCode,
+        ProductName,
+        CategoryID,
+        SupplierID,
+        UnitPrice,
+        UnitsInStock,
+        Discontinued,
+        CreatedDate,
+        
+        -- Identify duplicates by product code (case-insensitive)
+        ROW_NUMBER() OVER (
+            PARTITION BY UPPER(TRIM(ProductCode))
+            ORDER BY 
+                Discontinued,  -- Keep non-discontinued first
+                UnitsInStock DESC,  -- Keep better stock
+                CreatedDate  -- Keep newer
+        ) AS KeepPriority,
+        
+        -- Count duplicates in group
+        COUNT(*) OVER (PARTITION BY UPPER(TRIM(ProductCode))) AS DuplicateCount
+        
+    FROM Products
+    WHERE ProductCode IS NOT NULL
+        AND TRIM(ProductCode) != ''
+),
+-- Update inventory for duplicates before deletion
+InventoryUpdate AS (
+    SELECT 
+        pd.ProductID,
+        pd.ProductCode,
+        pd.KeepPriority,
+        pd.DuplicateCount,
+        -- Sum stock from all duplicates to the one we keep
+        SUM(pd.UnitsInStock) OVER (
+            PARTITION BY UPPER(TRIM(pd.ProductCode))
+        ) AS TotalStockForCode,
+        -- Find the product ID we're keeping
+        FIRST_VALUE(pd.ProductID) OVER (
+            PARTITION BY UPPER(TRIM(pd.ProductCode))
+            ORDER BY pd.KeepPriority
+        ) AS KeepProductID
+        
+    FROM ProductDuplicates pd
+    WHERE pd.DuplicateCount > 1
+),
+-- Update the kept product with merged inventory
+UpdateKeptProducts AS (
+    SELECT DISTINCT
+        KeepProductID,
+        TotalStockForCode
+    FROM InventoryUpdate
+    WHERE KeepPriority = 1
+)
+-- Step 1: Update inventory for kept products
+UPDATE p
+SET p.UnitsInStock = ukp.TotalStockForCode
+FROM Products p
+JOIN UpdateKeptProducts ukp ON p.ProductID = ukp.KeepProductID;
+
+-- Step 2: Update related records (e.g., order details) to point to kept product
+UPDATE od
+SET od.ProductID = iu.KeepProductID
+FROM OrderDetails od
+JOIN InventoryUpdate iu ON od.ProductID = iu.ProductID
+WHERE iu.KeepPriority > 1;  -- Only for duplicates being removed
+
+-- Step 3: Safely delete duplicates
+WITH DeleteDuplicates AS (
+    SELECT ProductID
+    FROM ProductDuplicates
+    WHERE DuplicateCount > 1
+        AND KeepPriority > 1
+)
+DELETE FROM Products
+WHERE ProductID IN (SELECT ProductID FROM DeleteDuplicates);
+
+-- Verify cleanup
+SELECT 
+    ProductCode,
+    COUNT(*) AS RemainingCount
+FROM Products
+GROUP BY ProductCode
+HAVING COUNT(*) > 1
+ORDER BY COUNT(*) DESC;
+5. Important Notes / Common Mistakes
+
+Always backup before mass deletions
+
+Use transaction for rollback capability
+
+Test with SELECT first, then DELETE
+
+Consider foreign key constraints
+
+Update related tables before deletion
+
+Common mistake: Not handling related records
+
+sql
+-- DANGEROUS: No transaction, no backup
+DELETE FROM table WHERE ...;
+
+-- SAFE: Use transaction and test first
+BEGIN TRANSACTION;
+
+-- Test first
+SELECT COUNT(*) FROM table WHERE ...;
+
+-- Then delete
+DELETE FROM table WHERE ...;
+
+-- Verify
+SELECT COUNT(*) FROM table WHERE ...;
+
+-- Commit or rollback
+COMMIT TRANSACTION;
+-- ROLLBACK TRANSACTION;  -- If something went wrong
+Keep latest / oldest record
+1. Concept Explanation
+
+What it is: When deleting duplicates, deciding which record to keep.
+
+Why it is needed: Business rules dictate keeping most recent or original record.
+
+Where it is used: Data deduplication, audit trails, version control.
+
+2. Methods
+
+sql
+-- Keep latest (most recent)
+WITH Duplicates AS (
+    SELECT *,
+        ROW_NUMBER() OVER (
+            PARTITION BY key_columns 
+            ORDER BY date_column DESC  -- Latest first
+        ) AS RowNum
+    FROM table
+)
+DELETE FROM Duplicates WHERE RowNum > 1;
+
+-- Keep oldest (original)
+WITH Duplicates AS (
+    SELECT *,
+        ROW_NUMBER() OVER (
+            PARTITION BY key_columns 
+            ORDER BY date_column ASC  -- Oldest first
+        ) AS RowNum
+    FROM table
+)
+DELETE FROM Duplicates WHERE RowNum > 1;
+3. Simple Example
+
+sql
+-- Keep latest employee record by email
+WITH LatestEmployees AS (
+    SELECT 
+        EmployeeID,
+        Email,
+        HireDate,
+        ROW_NUMBER() OVER (
+            PARTITION BY Email 
+            ORDER BY HireDate DESC, EmployeeID DESC  -- Keep latest
+        ) AS RowNum
+    FROM Employees
+    WHERE Email IS NOT NULL
+)
+DELETE FROM LatestEmployees WHERE RowNum > 1;
+
+-- Keep oldest order for each customer on same day
+WITH CustomerOrders AS (
+    SELECT 
+        OrderID,
+        CustomerID,
+        OrderDate,
+        ROW_NUMBER() OVER (
+            PARTITION BY CustomerID, CAST(OrderDate AS DATE)
+            ORDER BY OrderDate ASC, OrderID ASC  -- Keep oldest
+        ) AS RowNum
+    FROM Orders
+)
+DELETE FROM CustomerOrders WHERE RowNum > 1;
+4. Practical / Interview Example
+Problem: Manage customer address history, keeping only current and historical significant addresses.
+
+Solution:
+
+sql
+WITH AddressHistory AS (
+    SELECT 
+        AddressID,
+        CustomerID,
+        AddressType,
+        AddressLine1,
+        City,
+        PostalCode,
+        Country,
+        ValidFrom,
+        ValidTo,
+        IsCurrent,
+        LastModified,
+        
+        -- Rank addresses by significance
+        ROW_NUMBER() OVER (
+            PARTITION BY CustomerID, AddressType
+            ORDER BY 
+                CASE 
+                    WHEN IsCurrent = 1 THEN 1  -- Current first
+                    WHEN ValidTo IS NULL THEN 2  -- No end date
+                    ELSE 3
+                END,
+                ValidFrom DESC  -- Most recent historical
+        ) AS AddressPriority,
+        
+        -- Count addresses per type
+        COUNT(*) OVER (
+            PARTITION BY CustomerID, AddressType
+        ) AS AddressCountPerType
+        
+    FROM CustomerAddresses
+),
+-- Identify which addresses to keep
+AddressesToKeep AS (
+    SELECT 
+        AddressID,
+        CustomerID,
+        AddressType,
+        AddressPriority,
+        AddressCountPerType,
+        
+        -- Business rule: Keep current + up to 2 historical per type
+        CASE 
+            WHEN AddressPriority <= 3 THEN 'Keep'
+            ELSE 'Remove'
+        END AS KeepDecision,
+        
+        -- Reason for keeping/removing
+        CASE 
+            WHEN IsCurrent = 1 THEN 'Current Address'
+            WHEN AddressPriority = 2 THEN 'Most Recent Historical'
+            WHEN AddressPriority = 3 THEN 'Second Most Recent Historical'
+            ELSE 'Excess Historical Address'
+        END AS KeepReason
+        
+    FROM AddressHistory
+),
+-- Archive addresses before deletion (optional)
+ArchiveAddresses AS (
+    SELECT *
+    FROM CustomerAddresses ca
+    WHERE ca.AddressID IN (
+        SELECT AddressID 
+        FROM AddressesToKeep 
+        WHERE KeepDecision = 'Remove'
+    )
+)
+-- First, archive if needed (to separate table)
+-- INSERT INTO ArchivedAddresses SELECT * FROM ArchiveAddresses;
+
+-- Then, delete excess addresses
+DELETE ca
+FROM CustomerAddresses ca
+WHERE ca.AddressID IN (
+    SELECT AddressID 
+    FROM AddressesToKeep 
+    WHERE KeepDecision = 'Remove'
+);
+
+-- Update remaining addresses if needed
+UPDATE ca
+SET 
+    -- Mark only the top priority as current if multiple "current" exist
+    IsCurrent = CASE 
+        WHEN atk.AddressPriority = 1 THEN 1
+        ELSE 0
+    END,
+    
+    -- Ensure ValidTo is set for historical addresses
+    ValidTo = CASE 
+        WHEN atk.AddressPriority > 1 AND ca.ValidTo IS NULL 
+        THEN ca.LastModified
+        ELSE ca.ValidTo
+    END
+    
+FROM CustomerAddresses ca
+JOIN AddressesToKeep atk ON ca.AddressID = atk.AddressID
+WHERE atk.KeepDecision = 'Keep';
+
+-- Verify results
+SELECT 
+    CustomerID,
+    AddressType,
+    COUNT(*) AS RemainingAddresses,
+    SUM(CASE WHEN IsCurrent = 1 THEN 1 ELSE 0 END) AS CurrentCount
+FROM CustomerAddresses
+GROUP BY CustomerID, AddressType
+HAVING COUNT(*) > 3  -- Shouldn't have more than 3 per type now
+ORDER BY CustomerID, AddressType;
+5. Important Notes / Common Mistakes
+
+Define clear business rules for what to keep
+
+Consider archiving before deletion
+
+Update related records if needed
+
+Test with subset of data first
+
+Use transactions for safety
+
+Common mistake: Keeping wrong record due to incorrect ORDER BY
+
+sql
+-- WRONG: Might not handle NULL dates correctly
+ORDER BY DateColumn DESC
+
+-- BETTER: Handle NULLs explicitly
+ORDER BY 
+    CASE WHEN DateColumn IS NULL THEN 1 ELSE 0 END,
+    DateColumn DESC

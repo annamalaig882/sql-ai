@@ -1,0 +1,170 @@
+HAVING
+1. Concept Explanation
+
+What it is: Filters groups based on aggregate conditions (like WHERE for groups).
+
+Why it is needed: To filter aggregated results that WHERE can't filter.
+
+Where it is used: Filtering grouped data, summary reports with conditions.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT column1, aggregate_function(column2)
+FROM table
+WHERE condition  -- Filters rows BEFORE grouping
+GROUP BY column1
+HAVING condition  -- Filters groups AFTER grouping
+ORDER BY column1;
+3. Simple Example
+
+sql
+-- Departments with more than 5 employees
+SELECT 
+    Department,
+    COUNT(*) AS EmployeeCount
+FROM Employees
+GROUP BY Department
+HAVING COUNT(*) > 5;
+
+-- Products with average price > 100
+SELECT 
+    Category,
+    AVG(Price) AS AvgPrice
+FROM Products
+GROUP BY Category
+HAVING AVG(Price) > 100;
+
+-- Multiple HAVING conditions
+SELECT 
+    Department,
+    AVG(Salary) AS AvgSalary,
+    COUNT(*) AS EmployeeCount
+FROM Employees
+GROUP BY Department
+HAVING AVG(Salary) > 50000 
+    AND COUNT(*) >= 3;
+4. Practical / Interview Example
+Problem: Find customers who have placed more than 5 orders with total value over $5000 in the last year, excluding customers from specific regions.
+
+Solution:
+
+sql
+SELECT 
+    c.CustomerID,
+    c.FirstName + ' ' + c.LastName AS CustomerName,
+    c.Region,
+    COUNT(DISTINCT o.OrderID) AS OrderCount,
+    SUM(o.TotalAmount) AS TotalSpent,
+    AVG(o.TotalAmount) AS AvgOrderValue,
+    MIN(o.OrderDate) AS FirstOrderDate,
+    MAX(o.OrderDate) AS LastOrderDate
+FROM Customers c
+JOIN Orders o ON c.CustomerID = o.CustomerID
+WHERE o.OrderDate >= DATEADD(YEAR, -1, GETDATE())
+    AND c.Region NOT IN ('Test', 'Internal', 'Staff')
+GROUP BY 
+    c.CustomerID,
+    c.FirstName,
+    c.LastName,
+    c.Region
+HAVING 
+    COUNT(DISTINCT o.OrderID) > 5
+    AND SUM(o.TotalAmount) > 5000
+    AND AVG(o.TotalAmount) > 100
+ORDER BY TotalSpent DESC;
+5. Important Notes / Common Mistakes
+
+HAVING can use aggregate functions, WHERE cannot
+
+HAVING comes after GROUP BY, before ORDER BY
+
+Can reference column aliases from SELECT
+
+Use WHERE when possible (more efficient than HAVING)
+
+Common mistake: Using HAVING instead of WHERE for non-aggregate conditions
+
+Difference between WHERE and HAVING
+1. Concept Explanation
+
+What it is: WHERE filters individual rows before grouping, HAVING filters groups after grouping.
+
+Why it is needed: Different stages of query processing require different filtering approaches.
+
+Where it is used: Understanding query execution order for optimization.
+
+2. Key Differences
+
+WHERE	HAVING
+Filters rows before grouping	Filters groups after grouping
+Cannot use aggregate functions	Can use aggregate functions
+Faster for row filtering	Slower as it works on grouped data
+Used with SELECT, UPDATE, DELETE	Used only with GROUP BY
+Can't use column aliases	Can use column aliases
+3. Simple Example
+
+sql
+-- WHERE: Filter rows before grouping
+SELECT Department, AVG(Salary)
+FROM Employees
+WHERE HireDate > '2020-01-01'  -- Filter employees hired after 2020
+GROUP BY Department;
+
+-- HAVING: Filter groups after grouping  
+SELECT Department, AVG(Salary)
+FROM Employees
+GROUP BY Department
+HAVING AVG(Salary) > 50000;  -- Filter departments with avg salary > 50000
+
+-- Combined
+SELECT Department, AVG(Salary)
+FROM Employees
+WHERE HireDate > '2020-01-01'  -- First filter employees
+GROUP BY Department
+HAVING AVG(Salary) > 50000;   -- Then filter departments
+4. Practical / Interview Example
+Problem: Find departments with average salary over $60,000, but only considering employees hired in the last 3 years who are still active.
+
+Solution:
+
+sql
+SELECT 
+    Department,
+    COUNT(*) AS EmployeeCount,
+    AVG(Salary) AS AverageSalary,
+    MIN(Salary) AS MinSalary,
+    MAX(Salary) AS MaxSalary
+FROM Employees
+WHERE 
+    HireDate >= DATEADD(YEAR, -3, GETDATE())  -- WHERE: Row-level filter
+    AND Active = 1                            -- WHERE: Another row-level filter
+GROUP BY Department
+HAVING 
+    AVG(Salary) > 60000                      -- HAVING: Group-level filter
+    AND COUNT(*) >= 2                        -- HAVING: Another group filter
+ORDER BY AverageSalary DESC;
+5. Important Notes / Common Mistakes
+
+Execution Order: FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY
+
+Use WHERE to reduce rows before grouping (better performance)
+
+Use HAVING only for aggregate conditions
+
+Can use both in same query
+
+Common mistake: Using HAVING for non-aggregate conditions (inefficient)
+
+sql
+-- INEFFICIENT:
+SELECT Department, AVG(Salary)
+FROM Employees
+GROUP BY Department
+HAVING Department = 'Sales';  -- Should be in WHERE
+
+-- EFFICIENT:
+SELECT Department, AVG(Salary)
+FROM Employees
+WHERE Department = 'Sales'    -- Filter rows first
+GROUP BY Department;

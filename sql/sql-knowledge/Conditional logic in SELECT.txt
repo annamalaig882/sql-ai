@@ -1,0 +1,210 @@
+Conditional logic in SELECT
+1. Concept Explanation
+
+What it is: Using CASE and other conditional logic in SELECT clause.
+
+Why it is needed: To transform data, create calculated columns, implement business rules.
+
+Where it is used: Reports, data transformation, business logic implementation.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT 
+    column1,
+    CASE 
+        WHEN condition THEN result1
+        ELSE result2
+    END AS CalculatedColumn,
+    IIF(condition, true_value, false_value) AS AnotherColumn
+FROM table;
+3. Simple Example
+
+sql
+-- Basic conditional column
+SELECT 
+    ProductID,
+    ProductName,
+    Price,
+    CASE 
+        WHEN Price > 100 THEN 'Expensive'
+        WHEN Price > 50 THEN 'Moderate'
+        WHEN Price > 10 THEN 'Affordable'
+        ELSE 'Cheap'
+    END AS PriceCategory,
+    
+    -- Using IIF function (SQL Server 2012+)
+    IIF(StockQuantity > 0, 'In Stock', 'Out of Stock') AS StockStatus,
+    
+    -- Complex calculation
+    Price * 0.8 AS DiscountedPrice,
+    CASE 
+        WHEN Price * 0.8 > 50 THEN Price * 0.8
+        ELSE 50
+    END AS FinalPriceWithMin
+FROM Products;
+
+-- Nested CASE
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Salary,
+    PerformanceRating,
+    CASE 
+        WHEN PerformanceRating = 'A' THEN
+            CASE 
+                WHEN Salary < 60000 THEN Salary * 1.15
+                ELSE Salary * 1.10
+            END
+        WHEN PerformanceRating = 'B' THEN Salary * 1.05
+        WHEN PerformanceRating = 'C' THEN Salary * 1.02
+        ELSE Salary
+    END AS ProposedSalary,
+    CASE 
+        WHEN PerformanceRating = 'A' THEN 'High Performer'
+        WHEN PerformanceRating = 'B' THEN 'Good Performer'
+        WHEN PerformanceRating = 'C' THEN 'Average Performer'
+        ELSE 'Needs Improvement'
+    END AS PerformanceCategory
+FROM Employees;
+4. Practical / Interview Example
+Problem: Calculate dynamic pricing based on multiple factors.
+
+Solution:
+
+sql
+WITH ProductAnalysis AS (
+    SELECT 
+        p.ProductID,
+        p.ProductName,
+        p.CategoryID,
+        c.CategoryName,
+        p.UnitCost,
+        p.CurrentPrice,
+        p.StockQuantity,
+        p.ReorderLevel,
+        
+        -- Sales metrics
+        COALESCE(SUM(od.Quantity), 0) AS UnitsSoldLastMonth,
+        COALESCE(AVG(od.Quantity * od.UnitPrice), 0) AS AvgMonthlyRevenue,
+        
+        -- Inventory metrics
+        p.StockQuantity / NULLIF(
+            COALESCE(SUM(od.Quantity), 1), 0
+        ) AS MonthsOfInventory,
+        
+        -- Competitor price (simplified)
+        cp.CompetitorPrice
+        
+    FROM Products p
+    JOIN Categories c ON p.CategoryID = c.CategoryID
+    LEFT JOIN OrderDetails od ON p.ProductID = od.ProductID
+    LEFT JOIN Orders o ON od.OrderID = o.OrderID
+        AND o.OrderDate >= DATEADD(MONTH, -1, GETDATE())
+    LEFT JOIN CompetitorPrices cp ON p.ProductID = cp.ProductID
+    GROUP BY 
+        p.ProductID, p.ProductName, p.CategoryID, c.CategoryName,
+        p.UnitCost, p.CurrentPrice, p.StockQuantity, p.ReorderLevel,
+        cp.CompetitorPrice
+)
+SELECT 
+    ProductID,
+    ProductName,
+    CategoryName,
+    UnitCost,
+    CurrentPrice,
+    StockQuantity,
+    ReorderLevel,
+    UnitsSoldLastMonth,
+    AvgMonthlyRevenue,
+    MonthsOfInventory,
+    CompetitorPrice,
+    
+    -- Dynamic pricing logic
+    CASE 
+        -- Clearance: High inventory, low sales
+        WHEN MonthsOfInventory > 6 AND UnitsSoldLastMonth < 10 
+            THEN UnitCost * 1.1  -- Just above cost
+        
+        -- Promotion: Good sales but high competition
+        WHEN CompetitorPrice IS NOT NULL 
+            AND CompetitorPrice < CurrentPrice * 0.9
+            AND UnitsSoldLastMonth > 50
+            THEN CompetitorPrice * 0.95  -- Beat competitor by 5%
+        
+        -- Premium pricing: Low inventory, high demand
+        WHEN StockQuantity < ReorderLevel 
+            AND UnitsSoldLastMonth > 100
+            AND MonthsOfInventory < 0.5
+            THEN CurrentPrice * 1.15  -- Increase price 15%
+        
+        -- Seasonal adjustment
+        WHEN CategoryName IN ('Winter Clothing', 'Holiday Decorations')
+            AND MONTH(GETDATE()) IN (11, 12)  -- Nov-Dec
+            THEN CurrentPrice * 1.20
+        
+        -- Volume discount for bulk items
+        WHEN CategoryName = 'Bulk Items' 
+            AND StockQuantity > 1000
+            THEN CurrentPrice * 0.85
+        
+        -- Default: Keep current price
+        ELSE CurrentPrice
+    END AS RecommendedPrice,
+    
+    -- Pricing strategy description
+    CASE 
+        WHEN MonthsOfInventory > 6 AND UnitsSoldLastMonth < 10 
+            THEN 'Clearance Pricing'
+        
+        WHEN CompetitorPrice IS NOT NULL 
+            AND CompetitorPrice < CurrentPrice * 0.9
+            AND UnitsSoldLastMonth > 50
+            THEN 'Competitive Pricing'
+        
+        WHEN StockQuantity < ReorderLevel 
+            AND UnitsSoldLastMonth > 100
+            AND MonthsOfInventory < 0.5
+            THEN 'Premium Pricing (High Demand)'
+        
+        WHEN CategoryName IN ('Winter Clothing', 'Holiday Decorations')
+            AND MONTH(GETDATE()) IN (11, 12)
+            THEN 'Seasonal Premium Pricing'
+        
+        WHEN CategoryName = 'Bulk Items' 
+            AND StockQuantity > 1000
+            THEN 'Volume Discount Pricing'
+        
+        ELSE 'Standard Pricing'
+    END AS PricingStrategy,
+    
+    -- Profit margin calculation
+    CASE 
+        WHEN MonthsOfInventory > 6 AND UnitsSoldLastMonth < 10 
+            THEN (UnitCost * 1.1 - UnitCost) / NULLIF(UnitCost * 1.1, 0)
+        
+        WHEN CompetitorPrice IS NOT NULL 
+            AND CompetitorPrice < CurrentPrice * 0.9
+            AND UnitsSoldLastMonth > 50
+            THEN (CompetitorPrice * 0.95 - UnitCost) / NULLIF(CompetitorPrice * 0.95, 0)
+        
+        -- ... other cases
+        ELSE (CurrentPrice - UnitCost) / NULLIF(CurrentPrice, 0)
+    END AS ExpectedProfitMargin
+    
+FROM ProductAnalysis
+ORDER BY CategoryName, ProductName;
+5. Important Notes / Common Mistakes
+
+CASE in SELECT creates new column
+
+Can reference other columns in same SELECT
+
+All result expressions must be same/compatible data type
+
+Use IIF for simple true/false conditions (SQL Server 2012+)
+
+Avoid overly complex CASE in SELECT (consider moving to view)
+
+Common mistake: CASE returning different data types

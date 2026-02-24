@@ -1,0 +1,606 @@
+DATE & TIME FUNCTIONS
+GETDATE
+1. Concept Explanation
+
+What it is: Returns current date and time of database server.
+
+Why it is needed: For timestamps, age calculations, date comparisons.
+
+Where it is used: Audit logs, age calculations, time-sensitive queries.
+
+2. Syntax (MSSQL)
+
+sql
+GETDATE()  -- Returns datetime
+CURRENT_TIMESTAMP  -- ANSI SQL equivalent
+SYSDATETIME()  -- Higher precision (SQL Server 2008+)
+3. Simple Example
+
+sql
+-- Current date and time
+SELECT GETDATE() AS CurrentDateTime;
+
+-- Use in calculations
+SELECT 
+    OrderID,
+    OrderDate,
+    GETDATE() AS QueryTime,
+    DATEDIFF(DAY, OrderDate, GETDATE()) AS DaysSinceOrder
+FROM Orders;
+
+-- Set default value in table
+CREATE TABLE AuditLog (
+    LogID INT IDENTITY(1,1),
+    Action VARCHAR(50),
+    ActionDate DATETIME DEFAULT GETDATE(),
+    UserName VARCHAR(50)
+);
+4. Practical / Interview Example
+Problem: Calculate various date-based metrics for order analysis.
+
+Solution:
+
+sql
+WITH OrderAnalysis AS (
+    SELECT 
+        o.OrderID,
+        o.CustomerID,
+        o.OrderDate,
+        o.ShippedDate,
+        o.RequiredDate,
+        o.TotalAmount,
+        
+        -- Current date calculations
+        GETDATE() AS CurrentDateTime,
+        
+        -- Date differences
+        DATEDIFF(DAY, o.OrderDate, GETDATE()) AS DaysSinceOrder,
+        DATEDIFF(DAY, o.OrderDate, o.ShippedDate) AS DaysToShip,
+        DATEDIFF(DAY, o.ShippedDate, o.RequiredDate) AS DaysBeforeRequired,
+        
+        -- Age categories
+        CASE 
+            WHEN DATEDIFF(DAY, o.OrderDate, GETDATE()) <= 7 THEN 'Last 7 Days'
+            WHEN DATEDIFF(DAY, o.OrderDate, GETDATE()) <= 30 THEN 'Last 30 Days'
+            WHEN DATEDIFF(DAY, o.OrderDate, GETDATE()) <= 90 THEN 'Last 90 Days'
+            WHEN DATEDIFF(DAY, o.OrderDate, GETDATE()) <= 365 THEN 'Last Year'
+            ELSE 'Older'
+        END AS OrderAgeCategory,
+        
+        -- Shipping performance
+        CASE 
+            WHEN o.ShippedDate IS NULL AND GETDATE() > DATEADD(DAY, 7, o.OrderDate) 
+                THEN 'Overdue - Not Shipped'
+            WHEN o.ShippedDate > o.RequiredDate 
+                THEN 'Late'
+            WHEN o.ShippedDate <= o.RequiredDate 
+                THEN 'On Time'
+            ELSE 'Pending'
+        END AS ShippingStatus
+        
+    FROM Orders o
+)
+SELECT 
+    OrderAgeCategory,
+    ShippingStatus,
+    COUNT(*) AS OrderCount,
+    SUM(TotalAmount) AS TotalAmount,
+    AVG(DaysToShip) AS AvgDaysToShip,
+    MIN(OrderDate) AS EarliestOrder,
+    MAX(OrderDate) AS LatestOrder
+FROM OrderAnalysis
+GROUP BY OrderAgeCategory, ShippingStatus
+ORDER BY 
+    CASE OrderAgeCategory
+        WHEN 'Last 7 Days' THEN 1
+        WHEN 'Last 30 Days' THEN 2
+        WHEN 'Last 90 Days' THEN 3
+        WHEN 'Last Year' THEN 4
+        ELSE 5
+    END,
+    CASE ShippingStatus
+        WHEN 'Overdue - Not Shipped' THEN 1
+        WHEN 'Late' THEN 2
+        WHEN 'Pending' THEN 3
+        WHEN 'On Time' THEN 4
+    END;
+5. Important Notes / Common Mistakes
+
+GETDATE() includes time portion
+
+Use CAST(GETDATE() AS DATE) for date only
+
+Database server time, not client time
+
+SYSDATETIME() has higher precision (nanoseconds)
+
+For UTC time, use GETUTCDATE()
+
+Common mistake: Comparing dates with time portion
+
+sql
+-- WRONG: Might miss records from same day
+WHERE OrderDate = GETDATE()
+
+-- CORRECT: Compare dates only
+WHERE CAST(OrderDate AS DATE) = CAST(GETDATE() AS DATE)
+DATEADD
+1. Concept Explanation
+
+What it is: Adds interval to date (days, months, years, etc.).
+
+Why it is needed: For date calculations, scheduling, date ranges.
+
+Where it is used: Due date calculations, expiration dates, date ranges.
+
+2. Syntax (MSSQL)
+
+sql
+DATEADD(datepart, number, date)
+-- datepart: year, quarter, month, day, week, hour, minute, second
+-- number: can be positive (future) or negative (past)
+3. Simple Example
+
+sql
+-- Add 30 days to order date
+SELECT 
+    OrderID,
+    OrderDate,
+    DATEADD(DAY, 30, OrderDate) AS DueDate
+FROM Orders;
+
+-- Multiple date calculations
+SELECT 
+    GETDATE() AS Today,
+    DATEADD(DAY, -7, GETDATE()) AS LastWeek,
+    DATEADD(MONTH, 3, GETDATE()) AS ThreeMonthsFromNow,
+    DATEADD(YEAR, -1, GETDATE()) AS OneYearAgo;
+
+-- Calculate age
+SELECT 
+    EmployeeID,
+    BirthDate,
+    DATEDIFF(YEAR, BirthDate, GETDATE()) AS AgeYears,
+    DATEADD(YEAR, DATEDIFF(YEAR, BirthDate, GETDATE()), BirthDate) AS ThisYearsBirthday,
+    CASE 
+        WHEN DATEADD(YEAR, DATEDIFF(YEAR, BirthDate, GETDATE()), BirthDate) > GETDATE()
+        THEN DATEDIFF(YEAR, BirthDate, GETDATE()) - 1
+        ELSE DATEDIFF(YEAR, BirthDate, GETDATE())
+    END AS CorrectAge
+FROM Employees;
+4. Practical / Interview Example
+Problem: Create a subscription renewal report with various date calculations.
+
+Solution:
+
+sql
+WITH Subscriptions AS (
+    SELECT 
+        s.SubscriptionID,
+        s.CustomerID,
+        c.CompanyName,
+        s.StartDate,
+        s.EndDate,
+        s.RenewalPeriodMonths,
+        s.AutoRenew,
+        
+        -- Current date
+        GETDATE() AS CurrentDate,
+        
+        -- Renewal calculations
+        DATEADD(MONTH, s.RenewalPeriodMonths, s.StartDate) AS FirstRenewalDate,
+        DATEADD(MONTH, s.RenewalPeriodMonths, s.EndDate) AS NextRenewalDate,
+        
+        -- Grace period (30 days after end)
+        DATEADD(DAY, 30, s.EndDate) AS GracePeriodEnd,
+        
+        -- Reminder dates
+        DATEADD(DAY, -30, s.EndDate) AS Reminder30DaysBefore,
+        DATEADD(DAY, -7, s.EndDate) AS Reminder7DaysBefore,
+        
+        -- Trial period (if applicable)
+        CASE 
+            WHEN s.HasTrial = 1 
+            THEN DATEADD(DAY, 14, s.StartDate)
+            ELSE NULL
+        END AS TrialEndDate
+        
+    FROM Subscriptions s
+    JOIN Customers c ON s.CustomerID = c.CustomerID
+    WHERE s.Status = 'Active'
+),
+SubscriptionStatus AS (
+    SELECT 
+        *,
+        
+        -- Days until/since key dates
+        DATEDIFF(DAY, CurrentDate, EndDate) AS DaysUntilExpiry,
+        DATEDIFF(DAY, CurrentDate, NextRenewalDate) AS DaysUntilRenewal,
+        
+        -- Status classification
+        CASE 
+            WHEN CurrentDate > GracePeriodEnd THEN 'Expired - Grace Period Ended'
+            WHEN CurrentDate > EndDate THEN 'Expired - In Grace Period'
+            WHEN CurrentDate >= Reminder7DaysBefore AND CurrentDate < EndDate 
+                THEN 'Active - Expiring Soon'
+            WHEN CurrentDate >= Reminder30DaysBefore AND CurrentDate < Reminder7DaysBefore 
+                THEN 'Active - Renewal Reminder'
+            WHEN CurrentDate < Reminder30DaysBefore THEN 'Active - Standard'
+            ELSE 'Unknown'
+        END AS CurrentStatus,
+        
+        -- Renewal action needed
+        CASE 
+            WHEN AutoRenew = 1 AND CurrentDate >= DATEADD(DAY, -1, EndDate) 
+                THEN 'Auto-Renewal Scheduled'
+            WHEN AutoRenew = 0 AND CurrentDate >= Reminder7DaysBefore 
+                THEN 'Manual Renewal Required'
+            ELSE 'No Action Needed'
+        END AS RenewalAction
+        
+    FROM Subscriptions
+)
+SELECT 
+    CustomerID,
+    CompanyName,
+    SubscriptionID,
+    StartDate,
+    EndDate,
+    CurrentStatus,
+    RenewalAction,
+    DaysUntilExpiry,
+    DaysUntilRenewal,
+    
+    -- Next action date
+    CASE 
+        WHEN CurrentStatus LIKE 'Expired%' THEN 'Immediate'
+        WHEN RenewalAction = 'Manual Renewal Required' THEN 'ASAP'
+        WHEN DaysUntilExpiry BETWEEN 0 AND 7 THEN 'This Week'
+        WHEN DaysUntilExpiry BETWEEN 8 AND 30 THEN 'This Month'
+        ELSE 'Future'
+    END AS ActionPriority,
+    
+    -- Renewal value projection
+    CASE 
+        WHEN CurrentStatus LIKE 'Expired%' THEN 'High Risk - Churn Possible'
+        WHEN DaysUntilExpiry <= 7 THEN 'Medium Risk - Follow Up Needed'
+        WHEN AutoRenew = 1 THEN 'Low Risk - Auto Renewal'
+        ELSE 'Monitor'
+    END AS RiskAssessment
+    
+FROM SubscriptionStatus
+ORDER BY 
+    CASE 
+        WHEN CurrentStatus LIKE 'Expired%' THEN 1
+        WHEN DaysUntilExpiry <= 0 THEN 2
+        WHEN DaysUntilExpiry <= 7 THEN 3
+        WHEN DaysUntilExpiry <= 30 THEN 4
+        ELSE 5
+    END,
+    DaysUntilExpiry;
+5. Important Notes / Common Mistakes
+
+Negative numbers subtract from date
+
+Handles month-end dates correctly (Jan 31 + 1 month = Feb 28/29)
+
+Use appropriate datepart for business logic
+
+DATEADD returns same data type as input date
+
+Common mistake: Adding months when days are needed
+
+sql
+-- WRONG: Adds 1 month (could be 28-31 days)
+DATEADD(MONTH, 1, OrderDate)
+
+-- MAYBE CORRECT: Adds 30 days
+DATEADD(DAY, 30, OrderDate)
+DATEDIFF
+1. Concept Explanation
+
+What it is: Calculates difference between two dates in specified units.
+
+Why it is needed: For age calculations, duration measurements, time intervals.
+
+Where it is used: Age calculations, service duration, date ranges.
+
+2. Syntax (MSSQL)
+
+sql
+DATEDIFF(datepart, startdate, enddate)
+-- Returns integer difference
+3. Simple Example
+
+sql
+-- Age in years
+SELECT 
+    EmployeeID,
+    BirthDate,
+    DATEDIFF(YEAR, BirthDate, GETDATE()) AS AgeYears
+FROM Employees;
+
+-- Order processing time
+SELECT 
+    OrderID,
+    OrderDate,
+    ShippedDate,
+    DATEDIFF(DAY, OrderDate, ShippedDate) AS DaysToShip,
+    DATEDIFF(HOUR, OrderDate, ShippedDate) AS HoursToShip
+FROM Orders
+WHERE ShippedDate IS NOT NULL;
+
+-- Multiple date differences
+SELECT 
+    GETDATE() AS Today,
+    DATEADD(YEAR, -1, GETDATE()) AS LastYear,
+    DATEDIFF(DAY, DATEADD(YEAR, -1, GETDATE()), GETDATE()) AS DaysInYear,
+    DATEDIFF(WEEK, DATEADD(YEAR, -1, GETDATE()), GETDATE()) AS WeeksInYear,
+    DATEDIFF(MONTH, DATEADD(YEAR, -1, GETDATE()), GETDATE()) AS MonthsInYear;
+4. Practical / Interview Example
+Problem: Analyze employee tenure and turnover patterns.
+
+Solution:
+
+sql
+WITH EmployeeTenure AS (
+    SELECT 
+        e.EmployeeID,
+        e.FirstName + ' ' + e.LastName AS EmployeeName,
+        e.Department,
+        e.HireDate,
+        e.TerminationDate,
+        m.FirstName + ' ' + m.LastName AS ManagerName,
+        
+        -- Current date for calculations
+        GETDATE() AS CurrentDate,
+        
+        -- Tenure calculations
+        CASE 
+            WHEN e.TerminationDate IS NULL 
+            THEN DATEDIFF(DAY, e.HireDate, GETDATE())
+            ELSE DATEDIFF(DAY, e.HireDate, e.TerminationDate)
+        END AS TenureDays,
+        
+        CASE 
+            WHEN e.TerminationDate IS NULL 
+            THEN DATEDIFF(MONTH, e.HireDate, GETDATE())
+            ELSE DATEDIFF(MONTH, e.HireDate, e.TerminationDate)
+        END AS TenureMonths,
+        
+        CASE 
+            WHEN e.TerminationDate IS NULL 
+            THEN DATEDIFF(YEAR, e.HireDate, GETDATE())
+            ELSE DATEDIFF(YEAR, e.HireDate, e.TerminationDate)
+        END AS TenureYears
+        
+    FROM Employees e
+    LEFT JOIN Employees m ON e.ManagerID = m.EmployeeID
+),
+TenureAnalysis AS (
+    SELECT 
+        *,
+        
+        -- Tenure categories
+        CASE 
+            WHEN TenureDays < 90 THEN 'New Hire (< 3 months)'
+            WHEN TenureDays < 365 THEN 'Junior (3-12 months)'
+            WHEN TenureDays < 1095 THEN 'Experienced (1-3 years)'
+            WHEN TenureDays < 1825 THEN 'Senior (3-5 years)'
+            WHEN TenureDays >= 1825 THEN 'Veteran (5+ years)'
+        END AS TenureCategory,
+        
+        -- Anniversary information
+        DATEADD(YEAR, TenureYears + 1, HireDate) AS NextAnniversary,
+        DATEDIFF(DAY, CurrentDate, DATEADD(YEAR, TenureYears + 1, HireDate)) AS DaysToNextAnniversary,
+        
+        -- Turnover risk (simplified)
+        CASE 
+            WHEN TerminationDate IS NULL AND TenureDays < 90 
+                THEN 'High Risk - New Hire'
+            WHEN TerminationDate IS NULL AND TenureDays BETWEEN 90 AND 365 
+                AND Department IN ('Sales', 'Customer Service')
+                THEN 'Medium Risk - High Turnover Department'
+            WHEN TerminationDate IS NULL AND NextAnniversary <= DATEADD(MONTH, 3, CurrentDate)
+                THEN 'Medium Risk - Near Anniversary'
+            WHEN TerminationDate IS NOT NULL AND TenureDays < 365
+                THEN 'Early Turnover'
+            ELSE 'Stable'
+        END AS TurnoverRisk
+        
+    FROM EmployeeTenure
+)
+SELECT 
+    -- Summary by tenure category
+    TenureCategory,
+    COUNT(*) AS EmployeeCount,
+    SUM(CASE WHEN TerminationDate IS NULL THEN 1 ELSE 0 END) AS ActiveEmployees,
+    SUM(CASE WHEN TerminationDate IS NOT NULL THEN 1 ELSE 0 END) AS TerminatedEmployees,
+    
+    -- Average tenure
+    AVG(TenureDays) AS AvgTenureDays,
+    AVG(TenureMonths) AS AvgTenureMonths,
+    AVG(TenureYears) AS AvgTenureYears,
+    
+    -- Turnover rate
+    CAST(SUM(CASE WHEN TerminationDate IS NOT NULL THEN 1 ELSE 0 END) * 100.0 / 
+        COUNT(*) AS DECIMAL(5,2)) AS TurnoverPercentage,
+    
+    -- Department distribution
+    STRING_AGG(DISTINCT Department, ', ') AS Departments
+    
+FROM TenureAnalysis
+GROUP BY TenureCategory
+ORDER BY 
+    CASE TenureCategory
+        WHEN 'New Hire (< 3 months)' THEN 1
+        WHEN 'Junior (3-12 months)' THEN 2
+        WHEN 'Experienced (1-3 years)' THEN 3
+        WHEN 'Senior (3-5 years)' THEN 4
+        WHEN 'Veteran (5+ years)' THEN 5
+    END;
+5. Important Notes / Common Mistakes
+
+Returns integer count of crossed boundaries
+
+DATEDIFF(YEAR, '2023-12-31', '2024-01-01') returns 1
+
+Use appropriate datepart for business needs
+
+For accurate age, calculate days and divide
+
+Common mistake: Using YEAR for age (inaccurate)
+
+sql
+-- WRONG: Returns 1 for baby born yesterday if year boundary crossed
+DATEDIFF(YEAR, BirthDate, GETDATE())
+
+-- BETTER: Calculate days and convert
+DATEDIFF(DAY, BirthDate, GETDATE()) / 365.25
+DATENAME
+1. Concept Explanation
+
+What it is: Returns character string representing date part.
+
+Why it is needed: For formatted date output, day/month names.
+
+Where it is used: Reports, formatted output, date analysis.
+
+2. Syntax (MSSQL)
+
+sql
+DATENAME(datepart, date)
+-- datepart: year, quarter, month, day, dayofyear, week, weekday, hour, minute, second
+-- Returns: 'January', 'Monday', 'Q1', etc.
+3. Simple Example
+
+sql
+-- Get day and month names
+SELECT 
+    OrderDate,
+    DATENAME(YEAR, OrderDate) AS OrderYear,
+    DATENAME(MONTH, OrderDate) AS OrderMonth,
+    DATENAME(WEEKDAY, OrderDate) AS OrderDay,
+    DATENAME(QUARTER, OrderDate) AS OrderQuarter,
+    DATENAME(DAYOFYEAR, OrderDate) AS DayOfYear
+FROM Orders;
+
+-- Formatted date string
+SELECT 
+    OrderID,
+    OrderDate,
+    DATENAME(MONTH, OrderDate) + ' ' + 
+    DATENAME(DAY, OrderDate) + ', ' + 
+    DATENAME(YEAR, OrderDate) AS FormattedDate
+FROM Orders;
+
+-- Business day analysis
+SELECT 
+    DATENAME(WEEKDAY, OrderDate) AS Weekday,
+    COUNT(*) AS OrderCount,
+    AVG(TotalAmount) AS AvgOrderValue
+FROM Orders
+GROUP BY DATENAME(WEEKDAY, OrderDate), DATEPART(WEEKDAY, OrderDate)
+ORDER BY DATEPART(WEEKDAY, OrderDate);
+4. Practical / Interview Example
+Problem: Create a calendar dimension table with formatted date parts.
+
+Solution:
+
+sql
+-- Create calendar table for analysis
+DECLARE @StartDate DATE = '2020-01-01';
+DECLARE @EndDate DATE = '2025-12-31';
+
+WITH CalendarCTE AS (
+    SELECT @StartDate AS CalendarDate
+    
+    UNION ALL
+    
+    SELECT DATEADD(DAY, 1, CalendarDate)
+    FROM CalendarCTE
+    WHERE CalendarDate < @EndDate
+)
+SELECT 
+    CalendarDate,
+    
+    -- Date parts
+    YEAR(CalendarDate) AS CalendarYear,
+    DATENAME(YEAR, CalendarDate) AS CalendarYearName,
+    
+    MONTH(CalendarDate) AS CalendarMonth,
+    DATENAME(MONTH, CalendarDate) AS CalendarMonthName,
+    LEFT(DATENAME(MONTH, CalendarDate), 3) AS CalendarMonthShort,
+    
+    DAY(CalendarDate) AS CalendarDay,
+    DATENAME(DAY, CalendarDate) AS CalendarDayName,
+    
+    -- Week information
+    DATEPART(WEEK, CalendarDate) AS WeekNumber,
+    DATENAME(WEEKDAY, CalendarDate) AS WeekdayName,
+    LEFT(DATENAME(WEEKDAY, CalendarDate), 3) AS WeekdayShort,
+    
+    -- Quarter information
+    DATEPART(QUARTER, CalendarDate) AS CalendarQuarter,
+    'Q' + CAST(DATEPART(QUARTER, CalendarDate) AS VARCHAR(1)) AS QuarterName,
+    
+    -- Financial year (April-March)
+    CASE 
+        WHEN MONTH(CalendarDate) >= 4 
+        THEN YEAR(CalendarDate)
+        ELSE YEAR(CalendarDate) - 1
+    END AS FinancialYear,
+    
+    'FY' + 
+    CASE 
+        WHEN MONTH(CalendarDate) >= 4 
+        THEN CAST(YEAR(CalendarDate) AS VARCHAR(4))
+        ELSE CAST(YEAR(CalendarDate) - 1 AS VARCHAR(4))
+    END AS FinancialYearName,
+    
+    -- Special flags
+    CASE 
+        WHEN DATENAME(WEEKDAY, CalendarDate) IN ('Saturday', 'Sunday') 
+        THEN 1 ELSE 0 
+    END AS IsWeekend,
+    
+    CASE 
+        WHEN MONTH(CalendarDate) = 12 AND DAY(CalendarDate) = 25 
+        THEN 1 ELSE 0 
+    END AS IsChristmas,
+    
+    CASE 
+        WHEN MONTH(CalendarDate) = 1 AND DAY(CalendarDate) = 1 
+        THEN 1 ELSE 0 
+    END AS IsNewYear,
+    
+    -- Formatted strings
+    CAST(YEAR(CalendarDate) AS VARCHAR(4)) + '-' + 
+    RIGHT('0' + CAST(MONTH(CalendarDate) AS VARCHAR(2)), 2) + '-' + 
+    RIGHT('0' + CAST(DAY(CalendarDate) AS VARCHAR(2)), 2) AS ISOFormat,
+    
+    DATENAME(MONTH, CalendarDate) + ' ' + 
+    CAST(DAY(CalendarDate) AS VARCHAR(2)) + ', ' + 
+    CAST(YEAR(CalendarDate) AS VARCHAR(4)) AS LongFormat,
+    
+    -- Season (Northern Hemisphere)
+    CASE 
+        WHEN MONTH(CalendarDate) IN (12, 1, 2) THEN 'Winter'
+        WHEN MONTH(CalendarDate) IN (3, 4, 5) THEN 'Spring'
+        WHEN MONTH(CalendarDate) IN (6, 7, 8) THEN 'Summer'
+        WHEN MONTH(CalendarDate) IN (9, 10, 11) THEN 'Autumn'
+    END AS Season
+    
+FROM CalendarCTE
+OPTION (MAXRECURSION 0);
+5. Important Notes / Common Mistakes
+
+Returns nvarchar, not integer
+
+Language dependent (returns names in server language)
+
+Use DATEPART for numeric values
+
+Weekday name depends on DATEFIRST setting
+
+Common mistake: Using DATENAME for calculations (use DATEPART)

@@ -1,0 +1,84 @@
+BASICS
+Database and Table concepts
+1. Concept Explanation
+
+What it is: A database is an organized collection of structured data stored electronically. In MSSQL, a database contains tables which store data in rows and columns. Tables are the fundamental storage objects.
+
+Why it is needed: Databases provide persistent storage, data integrity, security, and efficient data retrieval. They allow multiple users to access and manipulate data concurrently.
+
+Where it is used: Every application that needs to store data - e-commerce sites (customer/order data), banking systems (transactions), healthcare systems (patient records), etc.
+
+2. Syntax (MSSQL)
+
+sql
+-- Create a database
+CREATE DATABASE DatabaseName;
+
+-- Create a table
+CREATE TABLE TableName (
+    Column1 DataType Constraints,
+    Column2 DataType Constraints,
+    ...
+);
+
+-- Basic data types: INT, VARCHAR(n), DATE, DATETIME, DECIMAL(p,s), BIT
+3. Simple Example
+
+sql
+-- Create a simple database for a bookstore
+CREATE DATABASE Bookstore;
+
+USE Bookstore;
+
+CREATE TABLE Books (
+    BookID INT PRIMARY KEY IDENTITY(1,1),
+    Title VARCHAR(100) NOT NULL,
+    Author VARCHAR(50) NOT NULL,
+    Price DECIMAL(10,2) NOT NULL,
+    PublishedDate DATE,
+    InStock BIT DEFAULT 1
+);
+
+INSERT INTO Books (Title, Author, Price, PublishedDate)
+VALUES ('SQL Fundamentals', 'John Smith', 49.99, '2023-01-15');
+4. Practical / Interview Example
+Problem: Create a database for an employee management system with tables for employees and departments. Employees should have department reference.
+
+Solution:
+
+sql
+CREATE DATABASE CompanyDB;
+GO
+
+USE CompanyDB;
+
+CREATE TABLE Departments (
+    DeptID INT PRIMARY KEY IDENTITY(1,1),
+    DeptName VARCHAR(50) NOT NULL UNIQUE,
+    Location VARCHAR(50)
+);
+
+CREATE TABLE Employees (
+    EmployeeID INT PRIMARY KEY IDENTITY(101,1),
+    FirstName VARCHAR(30) NOT NULL,
+    LastName VARCHAR(30) NOT NULL,
+    Email VARCHAR(100) UNIQUE,
+    HireDate DATE NOT NULL DEFAULT GETDATE(),
+    Salary DECIMAL(10,2) CHECK (Salary > 0),
+    DeptID INT FOREIGN KEY REFERENCES Departments(DeptID),
+    CONSTRAINT CHK_Email CHECK (Email LIKE '%_@__%.__%')
+);
+5. Important Notes / Common Mistakes
+
+Always use USE DatabaseName to switch databases
+
+IDENTITY(1,1) auto-increments starting at 1, incrementing by 1
+
+Foreign keys maintain referential integrity
+
+Use appropriate data types to save storage space
+
+Always specify NOT NULL when column must have values
+
+Common mistake: Forgetting to set primary keys, leading to duplicate data
+

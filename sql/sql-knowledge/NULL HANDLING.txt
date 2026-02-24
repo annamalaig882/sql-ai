@@ -1,0 +1,500 @@
+NULL HANDLING
+ISNULL
+1. Concept Explanation
+
+What it is: Replaces NULL with specified value.
+
+Why it is needed: To handle NULLs in calculations and displays.
+
+Where it is used: Data cleaning, calculations, report formatting.
+
+2. Syntax (MSSQL)
+
+sql
+ISNULL(expression, replacement_value)
+-- Returns replacement_value if expression is NULL
+-- Returns expression if not NULL
+3. Simple Example
+
+sql
+-- Replace NULL with default value
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    ISNULL(MiddleName, '') AS MiddleName,  -- Empty string for NULL
+    ISNULL(Phone, 'No Phone') AS PhoneNumber,
+    ISNULL(Commission, 0) AS Commission  -- 0 for NULL commission
+FROM Employees;
+
+-- Use in calculations
+SELECT 
+    OrderID,
+    Quantity,
+    UnitPrice,
+    Discount,
+    Quantity * UnitPrice * (1 - ISNULL(Discount, 0)) AS FinalPrice
+FROM OrderDetails;
+
+-- Nested ISNULL
+SELECT 
+    ISNULL(Phone, ISNULL(Mobile, 'No Contact')) AS ContactNumber
+FROM Customers;
+4. Practical / Interview Example
+Problem: Calculate employee total compensation with various NULL-handled components.
+
+Solution:
+
+sql
+WITH EmployeeCompensation AS (
+    SELECT 
+        e.EmployeeID,
+        e.FirstName + ' ' + e.LastName AS EmployeeName,
+        e.Department,
+        e.Salary,
+        
+        -- Handle NULLs in compensation components
+        ISNULL(e.Bonus, 0) AS Bonus,
+        ISNULL(e.Commission, 0) AS Commission,
+        ISNULL(e.StockOptions, 0) AS StockOptions,
+        ISNULL(e.RetirementMatch, 0) AS RetirementMatch,
+        
+        -- Benefits (might be NULL)
+        ISNULL(b.HealthInsurance, 0) AS HealthInsuranceValue,
+        ISNULL(b.LifeInsurance, 0) AS LifeInsuranceValue,
+        ISNULL(b.EducationAllowance, 0) AS EducationAllowance
+        
+    FROM Employees e
+    LEFT JOIN Benefits b ON e.EmployeeID = b.EmployeeID
+    WHERE e.Active = 1
+)
+SELECT 
+    EmployeeID,
+    EmployeeName,
+    Department,
+    Salary,
+    Bonus,
+    Commission,
+    StockOptions,
+    RetirementMatch,
+    HealthInsuranceValue,
+    LifeInsuranceValue,
+    EducationAllowance,
+    
+    -- Total compensation calculation
+    Salary 
+    + ISNULL(Bonus, 0)
+    + ISNULL(Commission, 0)
+    + ISNULL(StockOptions, 0)
+    + ISNULL(RetirementMatch, 0)
+    + ISNULL(HealthInsuranceValue, 0)
+    + ISNULL(LifeInsuranceValue, 0)
+    + ISNULL(EducationAllowance, 0) AS TotalCompensation,
+    
+    -- Variable compensation percentage
+    CASE 
+        WHEN Salary > 0 THEN
+            (ISNULL(Bonus, 0) + ISNULL(Commission, 0) + ISNULL(StockOptions, 0)) * 100.0 / Salary
+        ELSE 0
+    END AS VariableCompPercent,
+    
+    -- Compensation category
+    CASE 
+        WHEN Department = 'Sales' AND ISNULL(Commission, 0) > Salary * 0.5 
+            THEN 'Commission-Based'
+        WHEN ISNULL(Bonus, 0) > Salary * 0.3 
+            THEN 'Bonus-Heavy'
+        WHEN ISNULL(StockOptions, 0) > Salary 
+            THEN 'Equity-Focused'
+        ELSE 'Salary-Based'
+    END AS CompensationType
+    
+FROM EmployeeCompensation
+ORDER BY TotalCompensation DESC;
+5. Important Notes / Common Mistakes
+
+Returns same data type as first argument
+
+Use for simple NULL replacement
+
+For multiple fallbacks, use COALESCE
+
+ISNULL is MSSQL-specific (COALESCE is standard)
+
+Common mistake: Wrong data type in replacement
+
+sql
+-- WRONG: Type mismatch
+ISNULL(Phone, 0)  -- Phone is VARCHAR, 0 is INT
+
+-- CORRECT: Same data type
+ISNULL(Phone, '0')
+COALESCE
+1. Concept Explanation
+
+What it is: Returns first non-NULL value from list.
+
+Why it is needed: For multiple fallback values, flexible NULL handling.
+
+Where it is used: Data prioritization, multiple fallback scenarios.
+
+2. Syntax (MSSQL)
+
+sql
+COALESCE(expression1, expression2, ..., expressionN)
+-- Returns first non-NULL expression
+-- Returns NULL if all expressions are NULL
+3. Simple Example
+
+sql
+-- Multiple fallback values
+SELECT 
+    CustomerID,
+    COALESCE(Phone, Mobile, HomePhone, 'No Phone') AS ContactNumber
+FROM Customers;
+
+-- Use with calculations
+SELECT 
+    ProductID,
+    ProductName,
+    COALESCE(SalePrice, ListPrice, 0) AS EffectivePrice
+FROM Products;
+
+-- Complex prioritization
+SELECT 
+    OrderID,
+    COALESCE(
+        SpecialInstructions,
+        CustomerNotes,
+        'Standard Handling'
+    ) AS HandlingInstructions
+FROM Orders;
+4. Practical / Interview Example
+Problem: Create a unified customer contact view with prioritized contact methods.
+
+Solution:
+
+sql
+WITH CustomerContacts AS (
+    SELECT 
+        c.CustomerID,
+        c.CompanyName,
+        c.ContactName,
+        
+        -- Contact information with prioritization
+        COALESCE(
+            c.PrimaryEmail,
+            c.SecondaryEmail,
+            s.SupportEmail,
+            'no-email@company.com'
+        ) AS EffectiveEmail,
+        
+        COALESCE(
+            c.MobilePhone,
+            c.WorkPhone,
+            c.HomePhone,
+            s.SupportPhone,
+            'N/A'
+        ) AS EffectivePhone,
+        
+        COALESCE(
+            c.PreferredContactMethod,
+            CASE 
+                WHEN c.MobilePhone IS NOT NULL THEN 'Mobile'
+                WHEN c.WorkPhone IS NOT NULL THEN 'Work'
+                WHEN c.PrimaryEmail IS NOT NULL THEN 'Email'
+                ELSE 'Mail'
+            END,
+            'Email'
+        ) AS ContactMethod,
+        
+        -- Address prioritization
+        COALESCE(
+            c.ShippingAddress,
+            c.BillingAddress,
+            c.RegisteredAddress,
+            'Address Not Available'
+        ) AS DeliveryAddress,
+        
+        -- Emergency contact
+        COALESCE(
+            e.EmergencyContactName,
+            c.ContactName + ' (Primary)'
+        ) AS EmergencyContact,
+        
+        COALESCE(
+            e.EmergencyPhone,
+            c.MobilePhone,
+            c.WorkPhone,
+            'No Emergency Contact'
+        ) AS EmergencyPhone
+        
+    FROM Customers c
+    LEFT JOIN CustomerSupport s ON c.CustomerID = s.CustomerID
+    LEFT JOIN EmergencyContacts e ON c.CustomerID = e.CustomerID
+    WHERE c.Active = 1
+),
+ContactAnalysis AS (
+    SELECT 
+        *,
+        
+        -- Contact completeness score
+        CASE 
+            WHEN EffectiveEmail NOT LIKE '%no-email%' THEN 25 ELSE 0 END +
+        CASE 
+            WHEN EffectivePhone != 'N/A' THEN 25 ELSE 0 END +
+        CASE 
+            WHEN DeliveryAddress NOT LIKE '%Not Available%' THEN 25 ELSE 0 END +
+        CASE 
+            WHEN EmergencyPhone NOT LIKE '%No Emergency%' THEN 25 ELSE 0 END 
+        AS ContactCompletenessScore,
+        
+        -- Communication preferences
+        CASE ContactMethod
+            WHEN 'Mobile' THEN 'SMS/Call'
+            WHEN 'Work' THEN 'Business Hours Only'
+            WHEN 'Email' THEN 'Digital Preferred'
+            WHEN 'Mail' THEN 'Postal Mail'
+            ELSE 'Unknown'
+        END AS CommunicationPreference
+        
+    FROM CustomerContacts
+)
+SELECT 
+    CustomerID,
+    CompanyName,
+    ContactName,
+    EffectiveEmail,
+    EffectivePhone,
+    ContactMethod,
+    DeliveryAddress,
+    EmergencyContact,
+    EmergencyPhone,
+    ContactCompletenessScore,
+    CommunicationPreference,
+    
+    -- Contact quality rating
+    CASE 
+        WHEN ContactCompletenessScore = 100 THEN 'Excellent'
+        WHEN ContactCompletenessScore >= 75 THEN 'Good'
+        WHEN ContactCompletenessScore >= 50 THEN 'Fair'
+        ELSE 'Poor'
+    END AS ContactQuality,
+    
+    -- Action required
+    CASE 
+        WHEN EffectiveEmail LIKE '%no-email%' 
+            THEN 'Add Email Address'
+        WHEN EffectivePhone = 'N/A' 
+            THEN 'Add Phone Number'
+        WHEN EmergencyPhone LIKE '%No Emergency%' 
+            THEN 'Add Emergency Contact'
+        ELSE 'Complete'
+    END AS DataActionRequired
+    
+FROM ContactAnalysis
+ORDER BY ContactCompletenessScore, CompanyName;
+5. Important Notes / Common Mistakes
+
+Returns first non-NULL value
+
+All expressions must be same/compatible data type
+
+COALESCE(expr1, expr2) ≡ CASE WHEN expr1 IS NOT NULL THEN expr1 ELSE expr2 END
+
+Use for multiple fallback values
+
+Returns NULL if all arguments are NULL
+
+Common mistake: Data type mismatch in arguments
+
+NULL behavior in calculations
+1. Concept Explanation
+
+What it is: How NULL values behave in arithmetic and comparisons.
+
+Why it is needed: To understand and handle NULLs correctly in queries.
+
+Where it is used: All calculations involving potentially NULL columns.
+
+2. NULL Behavior Rules
+
+NULL + Value = NULL
+
+NULL * Value = NULL
+
+NULL / Value = NULL
+
+NULL / NULL = NULL
+
+Aggregate functions ignore NULLs (except COUNT(*))
+
+NULL comparison with =, <, > returns UNKNOWN
+
+NULL = NULL returns UNKNOWN (not TRUE)
+
+3. Simple Example
+
+sql
+-- NULL in calculations
+SELECT 
+    10 + NULL AS Addition,      -- NULL
+    10 * NULL AS Multiplication, -- NULL
+    10 / NULL AS Division,      -- NULL
+    NULL / NULL AS BothNull;    -- NULL
+
+-- NULL in aggregates
+SELECT 
+    COUNT(*) AS CountAll,        -- Counts all rows including NULLs
+    COUNT(Commission) AS CountCommission, -- Ignores NULLs
+    AVG(Commission) AS AvgCommission,     -- Ignores NULLs
+    SUM(Commission) AS SumCommission      -- Ignores NULLs
+FROM Employees;
+
+-- NULL comparisons
+SELECT 
+    CASE WHEN NULL = NULL THEN 'Equal' ELSE 'Not Equal' END AS NullEqualsNull,
+    CASE WHEN NULL IS NULL THEN 'Is Null' ELSE 'Not Null' END AS NullIsNull;
+4. Practical / Interview Example
+Problem: Calculate accurate financial metrics with proper NULL handling.
+
+Solution:
+
+sql
+WITH FinancialData AS (
+    SELECT 
+        AccountID,
+        TransactionDate,
+        TransactionType,
+        Amount,
+        Fee,
+        Tax,
+        Discount
+        
+    FROM Transactions
+    WHERE TransactionDate >= DATEADD(MONTH, -3, GETDATE())
+),
+CalculatedMetrics AS (
+    SELECT 
+        *,
+        
+        -- Handle NULLs in calculations
+        Amount 
+        - ISNULL(Fee, 0) 
+        - ISNULL(Tax, 0) 
+        + ISNULL(Discount, 0) AS NetAmount,
+        
+        -- Percentage calculations with NULL handling
+        CASE 
+            WHEN Amount > 0 THEN
+                (ISNULL(Fee, 0) + ISNULL(Tax, 0)) * 100.0 / Amount
+            ELSE 0
+        END AS FeeTaxPercent,
+        
+        -- Growth calculation (handling NULL previous)
+        Amount - LAG(Amount, 1, 0) OVER (
+            PARTITION BY AccountID 
+            ORDER BY TransactionDate
+        ) AS AmountGrowth,
+        
+        -- NULL-safe comparison
+        CASE 
+            WHEN Amount > ISNULL(
+                LAG(Amount) OVER (PARTITION BY AccountID ORDER BY TransactionDate), 
+                0
+            ) THEN 'Increased'
+            WHEN Amount < ISNULL(
+                LAG(Amount) OVER (PARTITION BY AccountID ORDER BY TransactionDate), 
+                0
+            ) THEN 'Decreased'
+            ELSE 'No Change or First Transaction'
+        END AS GrowthDirection
+        
+    FROM FinancialData
+),
+Summary AS (
+    SELECT 
+        AccountID,
+        
+        -- NULL-safe aggregates
+        COUNT(*) AS TransactionCount,
+        SUM(Amount) AS TotalAmount,
+        AVG(Amount) AS AvgAmount,
+        
+        -- SUM ignores NULLs, but we want 0 for no fees
+        SUM(ISNULL(Fee, 0)) AS TotalFees,
+        SUM(ISNULL(Tax, 0)) AS TotalTax,
+        SUM(ISNULL(Discount, 0)) AS TotalDiscount,
+        
+        -- Count non-NULL values
+        COUNT(Fee) AS FeeTransactionsCount,
+        COUNT(Tax) AS TaxTransactionsCount,
+        
+        -- Percentage of transactions with fees
+        CAST(COUNT(Fee) * 100.0 / COUNT(*) AS DECIMAL(5,2)) AS FeePercentage,
+        
+        -- Max with NULL handling
+        MAX(Amount) AS MaxAmount,
+        MIN(Amount) AS MinAmount,
+        
+        -- Date range (MIN/MAX ignore NULLs for dates)
+        MIN(TransactionDate) AS FirstTransaction,
+        MAX(TransactionDate) AS LastTransaction
+        
+    FROM FinancialData
+    GROUP BY AccountID
+)
+SELECT 
+    s.AccountID,
+    s.TransactionCount,
+    s.TotalAmount,
+    s.AvgAmount,
+    s.TotalFees,
+    s.TotalTax,
+    s.TotalDiscount,
+    s.FeePercentage,
+    s.MaxAmount,
+    s.MinAmount,
+    s.FirstTransaction,
+    s.LastTransaction,
+    
+    -- Calculate net total
+    s.TotalAmount - s.TotalFees - s.TotalTax + s.TotalDiscount AS NetTotal,
+    
+    -- Fee efficiency
+    CASE 
+        WHEN s.TotalAmount > 0 THEN
+            s.TotalFees * 100.0 / s.TotalAmount
+        ELSE 0
+    END AS FeeEfficiencyPercent,
+    
+    -- Transaction frequency
+    CASE 
+        WHEN s.TransactionCount > 1 THEN
+            DATEDIFF(DAY, s.FirstTransaction, s.LastTransaction) / 
+            (s.TransactionCount - 1.0)
+        ELSE NULL
+    END AS AvgDaysBetweenTransactions
+    
+FROM Summary s
+ORDER BY NetTotal DESC;
+5. Important Notes / Common Mistakes
+
+NULL + anything = NULL (use ISNULL or COALESCE)
+
+Aggregates ignore NULLs (except COUNT(*))
+
+NULL comparisons return UNKNOWN (use IS NULL)
+
+Use ISNULL/COALESCE before calculations
+
+Test queries with NULL data
+
+Common mistake: Forgetting NULLs in calculations
+
+sql
+-- WRONG: Returns NULL if any column is NULL
+SELECT Price * Quantity * (1 - Discount)  -- NULL if Discount is NULL
+
+-- CORRECT: Handle NULLs
+SELECT Price * Quantity * (1 - ISNULL(Discount, 0))

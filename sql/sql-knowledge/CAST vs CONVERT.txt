@@ -1,0 +1,130 @@
+CAST vs CONVERT
+1. Concept Explanation
+
+What it is: Functions to convert data types.
+
+Why it is needed: Data type conversion for operations, formatting, compatibility.
+
+Where it is used: Data type conversions, formatted output, compatibility.
+
+2. Comparison
+
+Aspect	CAST	CONVERT
+Standard	ANSI SQL	SQL Server specific
+Syntax	CAST(expression AS type)	CONVERT(type, expression, style)
+Date formatting	No style parameter	Style parameter for dates
+Readability	Clear intent	More flexible
+Performance	Slightly faster	Slightly slower
+3. Simple Example
+
+sql
+-- CAST examples
+SELECT 
+    CAST(123 AS VARCHAR(10)) AS IntToString,
+    CAST('123.45' AS DECIMAL(10,2)) AS StringToDecimal,
+    CAST(GETDATE() AS DATE) AS DateTimeToDate,
+    CAST(Salary AS VARCHAR(20)) + ' USD' AS SalaryString
+FROM Employees;
+
+-- CONVERT examples (with style parameter)
+SELECT 
+    CONVERT(VARCHAR(20), GETDATE(), 101) AS USFormat,  -- mm/dd/yyyy
+    CONVERT(VARCHAR(20), GETDATE(), 103) AS EUFormat,  -- dd/mm/yyyy
+    CONVERT(VARCHAR(20), GETDATE(), 112) AS ISODate,   -- yyyymmdd
+    CONVERT(VARCHAR(20), GETDATE(), 120) AS ISODateTime; -- yyyy-mm-dd hh:mi:ss
+
+-- Comparison
+SELECT 
+    GETDATE() AS Original,
+    CAST(GETDATE() AS VARCHAR(20)) AS CastResult,  -- No format control
+    CONVERT(VARCHAR(20), GETDATE(), 106) AS ConvertResult;  -- dd mon yyyy
+4. Practical / Interview Example
+Problem: Format data for reporting with various data type conversions.
+
+Solution:
+
+sql
+WITH ReportData AS (
+    SELECT 
+        o.OrderID,
+        o.CustomerID,
+        c.CompanyName,
+        o.OrderDate,
+        o.ShippedDate,
+        o.RequiredDate,
+        o.TotalAmount,
+        o.Freight,
+        
+        -- Calculate derived values
+        o.TotalAmount + o.Freight AS GrandTotal,
+        o.Freight * 100.0 / NULLIF(o.TotalAmount, 0) AS FreightPercent
+        
+    FROM Orders o
+    JOIN Customers c ON o.CustomerID = c.CustomerID
+    WHERE o.OrderDate >= DATEADD(YEAR, -1, GETDATE())
+)
+SELECT 
+    -- String conversions for display
+    'Order #' + CAST(OrderID AS VARCHAR(10)) AS OrderNumber,
+    UPPER(LEFT(CompanyName, 3)) + '-' + 
+        RIGHT('00000' + CAST(CustomerID AS VARCHAR(10)), 5) AS CustomerCode,
+    
+    -- Date formatting
+    CONVERT(VARCHAR(20), OrderDate, 101) AS OrderDateUS,
+    CONVERT(VARCHAR(20), OrderDate, 103) AS OrderDateEU,
+    CONVERT(VARCHAR(20), OrderDate, 106) AS OrderDateLong,  -- dd mon yyyy
+    
+    -- Currency formatting
+    '$' + CAST(CAST(TotalAmount AS DECIMAL(10,2)) AS VARCHAR(20)) AS AmountUSD,
+    '€' + CAST(CAST(TotalAmount * 0.85 AS DECIMAL(10,2)) AS VARCHAR(20)) AS AmountEUR,
+    
+    -- Percentage formatting
+    CAST(CAST(FreightPercent AS DECIMAL(5,2)) AS VARCHAR(10)) + '%' AS FreightPercentage,
+    
+    -- Status with conditional formatting
+    CASE 
+        WHEN ShippedDate IS NULL 
+            THEN 'Pending - ' + CONVERT(VARCHAR(10), DATEDIFF(DAY, OrderDate, GETDATE())) + ' days'
+        WHEN ShippedDate <= RequiredDate 
+            THEN 'Shipped On Time'
+        ELSE 'Shipped Late - ' + CONVERT(VARCHAR(10), DATEDIFF(DAY, RequiredDate, ShippedDate)) + ' days late'
+    END AS OrderStatus,
+    
+    -- Range categorization
+    CASE 
+        WHEN TotalAmount < 100 THEN 'Small (< $100)'
+        WHEN TotalAmount < 500 THEN 'Medium ($100-$500)'
+        WHEN TotalAmount < 1000 THEN 'Large ($500-$1000)'
+        ELSE 'X-Large (> $1000)'
+    END AS OrderSizeCategory,
+    
+    -- JSON-like output for integration
+    '{' +
+        '"OrderID":' + CAST(OrderID AS VARCHAR(10)) + ',' +
+        '"Customer":"' + REPLACE(CompanyName, '"', '\"') + '",' +
+        '"Amount":' + CAST(CAST(TotalAmount AS DECIMAL(10,2)) AS VARCHAR(20)) + ',' +
+        '"Date":"' + CONVERT(VARCHAR(10), OrderDate, 120) + '"' +
+    '}' AS JSONOutput
+    
+FROM ReportData
+ORDER BY OrderDate DESC;
+5. Important Notes / Common Mistakes
+
+Use CAST for simple type conversions
+
+Use CONVERT when you need style parameter (especially dates)
+
+Use TRY_CAST and TRY_CONVERT to avoid conversion errors
+
+Data loss possible (truncation, rounding)
+
+Style parameter for dates: 101-US, 103-EU, 112-ISO
+
+Common mistake: Incorrect style parameter
+
+sql
+-- WRONG: Style 101 expects datetime
+CONVERT(DATE, '2023-13-01', 101)  -- Error
+
+-- CORRECT: Use appropriate style or no style
+CONVERT(DATE, '2023-12-01', 120)  -- ISO format

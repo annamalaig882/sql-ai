@@ -1,0 +1,60 @@
+DISTINCT
+1. Concept Explanation
+
+What it is: DISTINCT eliminates duplicate rows from the result set.
+
+Why it is needed: To get unique values when data contains duplicates.
+
+Where it is used: Getting unique categories, counting distinct values, data cleanup.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT DISTINCT column1, column2, ...
+FROM table
+[WHERE conditions];
+3. Simple Example
+
+sql
+-- Get unique departments
+SELECT DISTINCT Department
+FROM Employees;
+
+-- Get unique combinations
+SELECT DISTINCT City, Country
+FROM Customers;
+
+-- DISTINCT with COUNT
+SELECT COUNT(DISTINCT Department) AS UniqueDepartments
+FROM Employees;
+4. Practical / Interview Example
+Problem: Find all unique job titles in the company along with the number of employees in each, but only for departments that have more than 5 distinct job titles.
+
+Solution:
+
+sql
+SELECT 
+    Department,
+    JobTitle,
+    COUNT(*) AS EmployeeCount
+FROM Employees
+WHERE Department IN (
+    SELECT Department
+    FROM Employees
+    GROUP BY Department
+    HAVING COUNT(DISTINCT JobTitle) > 5
+)
+GROUP BY Department, JobTitle
+ORDER BY Department, JobTitle;
+5. Important Notes / Common Mistakes
+
+DISTINCT applies to all selected columns
+
+COUNT(DISTINCT column) is different from DISTINCT COUNT(column)
+
+DISTINCT can be slow on large tables with many columns
+
+Use GROUP BY instead for aggregation with distinct values
+
+Common mistake: Using DISTINCT to hide data problems instead of fixing them
+

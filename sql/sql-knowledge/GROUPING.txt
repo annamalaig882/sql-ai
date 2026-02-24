@@ -1,0 +1,106 @@
+GROUPING
+GROUP BY
+1. Concept Explanation
+
+What it is: Groups rows that have the same values into summary rows.
+
+Why it is needed: To perform aggregate operations on grouped data.
+
+Where it is used: Summary reports, data analysis, grouping by categories.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT column1, aggregate_function(column2)
+FROM table
+WHERE condition
+GROUP BY column1
+[ORDER BY column1];
+3. Simple Example
+
+sql
+-- Group by department
+SELECT 
+    Department,
+    COUNT(*) AS EmployeeCount,
+    AVG(Salary) AS AvgSalary
+FROM Employees
+GROUP BY Department;
+
+-- Multiple grouping columns
+SELECT 
+    Department,
+    JobTitle,
+    COUNT(*) AS EmployeeCount,
+    SUM(Salary) AS TotalSalary
+FROM Employees
+GROUP BY Department, JobTitle;
+
+-- Group by expression
+SELECT 
+    YEAR(HireDate) AS HireYear,
+    COUNT(*) AS HiresCount
+FROM Employees
+GROUP BY YEAR(HireDate);
+4. Practical / Interview Example
+Problem: Analyze monthly sales performance by product category with year-over-year comparison.
+
+Solution:
+
+sql
+WITH MonthlySales AS (
+    SELECT 
+        YEAR(o.OrderDate) AS OrderYear,
+        MONTH(o.OrderDate) AS OrderMonth,
+        p.Category,
+        COUNT(DISTINCT o.OrderID) AS OrderCount,
+        COUNT(od.OrderDetailID) AS ItemCount,
+        SUM(od.Quantity * od.UnitPrice) AS TotalSales,
+        SUM(od.Quantity) AS TotalQuantity
+    FROM Orders o
+    JOIN OrderDetails od ON o.OrderID = od.OrderID
+    JOIN Products p ON od.ProductID = p.ProductID
+    WHERE o.OrderDate >= DATEADD(YEAR, -2, GETDATE())
+    GROUP BY 
+        YEAR(o.OrderDate),
+        MONTH(o.OrderDate),
+        p.Category
+)
+SELECT 
+    OrderYear,
+    OrderMonth,
+    Category,
+    OrderCount,
+    ItemCount,
+    TotalSales,
+    TotalQuantity,
+    TotalSales / TotalQuantity AS AvgPricePerItem,
+    
+    -- Previous month same category
+    LAG(TotalSales) OVER (
+        PARTITION BY Category 
+        ORDER BY OrderYear, OrderMonth
+    ) AS PreviousMonthSales,
+    
+    -- Year-over-year growth
+    TotalSales - LAG(TotalSales, 12) OVER (
+        PARTITION BY Category 
+        ORDER BY OrderYear, OrderMonth
+    ) AS YoYSalesGrowth
+    
+FROM MonthlySales
+ORDER BY 
+    OrderYear DESC,
+    OrderMonth DESC,
+    TotalSales DESC;
+5. Important Notes / Common Mistakes
+
+Every non-aggregated column in SELECT must be in GROUP BY
+
+GROUP BY executes after WHERE, before SELECT
+
+Can GROUP BY column aliases (SQL Server extension)
+
+NULLs are grouped together in GROUP BY
+
+Common mistake: Including non-aggregated columns not in GROUP BY

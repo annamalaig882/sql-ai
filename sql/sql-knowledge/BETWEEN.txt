@@ -1,0 +1,58 @@
+BETWEEN
+1. Concept Explanation
+
+What it is: Operator to filter values within a range (inclusive).
+
+Why it is needed: Cleaner syntax for range comparisons instead of using >= AND <=.
+
+Where it is used: Date ranges, price ranges, age ranges, any numeric or date ranges.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT columns
+FROM table
+WHERE column BETWEEN value1 AND value2;
+-- Equivalent to: column >= value1 AND column <= value2
+3. Simple Example
+
+sql
+-- Numeric range
+SELECT * FROM Products
+WHERE Price BETWEEN 10 AND 50;
+
+-- Date range
+SELECT * FROM Orders
+WHERE OrderDate BETWEEN '2023-01-01' AND '2023-01-31';
+
+-- Character range
+SELECT * FROM Customers
+WHERE LastName BETWEEN 'A' AND 'M';
+4. Practical / Interview Example
+Problem: Find all orders placed in Q1 2023 (Jan-Mar) with amounts between $500 and $5000, excluding weekends.
+
+Solution:
+
+sql
+SELECT 
+    OrderID,
+    CustomerID,
+    OrderDate,
+    DATENAME(WEEKDAY, OrderDate) AS OrderDay,
+    TotalAmount
+FROM Orders
+WHERE OrderDate BETWEEN '2023-01-01' AND '2023-03-31'
+    AND TotalAmount BETWEEN 500 AND 5000
+    AND DATEPART(WEEKDAY, OrderDate) NOT IN (1, 7) -- Exclude Sunday(1) and Saturday(7)
+ORDER BY OrderDate, TotalAmount;
+5. Important Notes / Common Mistakes
+
+BETWEEN is inclusive (includes both endpoints)
+
+Works with numbers, dates, and strings
+
+For dates, time portion matters: '2023-01-31' means '2023-01-31 00:00:00'
+
+Use CAST for date-only comparisons: CAST(OrderDate AS DATE)
+
+Common mistake: Using BETWEEN for exclusive ranges (need to adjust values)

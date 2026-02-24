@@ -1,0 +1,158 @@
+Conditional aggregation
+1. Concept Explanation
+
+What it is: Using CASE inside aggregate functions for conditional sums/counts.
+
+Why it is needed: To aggregate data based on conditions without filtering.
+
+Where it is used: Pivot-like aggregations, multiple metrics in single query.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT 
+    SUM(CASE WHEN condition THEN column END) AS ConditionalSum,
+    COUNT(CASE WHEN condition THEN 1 END) AS ConditionalCount,
+    AVG(CASE WHEN condition THEN column END) AS ConditionalAvg
+FROM table
+GROUP BY ...;
+3. Simple Example
+
+sql
+-- Count employees by salary range
+SELECT 
+    Department,
+    COUNT(*) AS TotalEmployees,
+    COUNT(CASE WHEN Salary >= 80000 THEN 1 END) AS HighEarners,
+    COUNT(CASE WHEN Salary BETWEEN 50000 AND 79999 THEN 1 END) AS MidEarners,
+    COUNT(CASE WHEN Salary < 50000 THEN 1 END) AS LowEarners,
+    SUM(CASE WHEN Salary >= 80000 THEN Salary END) AS HighEarnerSalaryTotal
+FROM Employees
+GROUP BY Department;
+
+-- Pivot-like sales by category
+SELECT 
+    YEAR(OrderDate) AS OrderYear,
+    SUM(CASE WHEN Category = 'Electronics' THEN TotalAmount END) AS ElectronicsSales,
+    SUM(CASE WHEN Category = 'Clothing' THEN TotalAmount END) AS ClothingSales,
+    SUM(CASE WHEN Category = 'Books' THEN TotalAmount END) AS BooksSales,
+    SUM(TotalAmount) AS TotalSales
+FROM Orders o
+JOIN OrderDetails od ON o.OrderID = od.OrderID
+JOIN Products p ON od.ProductID = p.ProductID
+GROUP BY YEAR(OrderDate);
+4. Practical / Interview Example
+Problem: Create comprehensive sales dashboard with multiple conditional aggregations.
+
+Solution:
+
+sql
+WITH SalesData AS (
+    SELECT 
+        o.OrderID,
+        o.OrderDate,
+        o.CustomerID,
+        od.ProductID,
+        od.Quantity,
+        od.UnitPrice,
+        od.Quantity * od.UnitPrice AS LineTotal,
+        p.Category,
+        c.Region,
+        c.CustomerType,
+        CASE 
+            WHEN o.TotalAmount > 1000 THEN 'Large'
+            WHEN o.TotalAmount > 500 THEN 'Medium'
+            ELSE 'Small'
+        END AS OrderSizeCategory
+    FROM Orders o
+    JOIN OrderDetails od ON o.OrderID = od.OrderID
+    JOIN Products p ON od.ProductID = p.ProductID
+    JOIN Customers c ON o.CustomerID = c.CustomerID
+    WHERE o.OrderDate >= DATEADD(YEAR, -1, GETDATE())
+)
+SELECT 
+    -- Time dimensions
+    YEAR(OrderDate) AS OrderYear,
+    MONTH(OrderDate) AS OrderMonth,
+    DATENAME(MONTH, OrderDate) AS MonthName,
+    DATEPART(QUARTER, OrderDate) AS OrderQuarter,
+    
+    -- Overall metrics
+    COUNT(DISTINCT OrderID) AS OrderCount,
+    COUNT(DISTINCT CustomerID) AS UniqueCustomers,
+    SUM(LineTotal) AS TotalRevenue,
+    SUM(Quantity) AS TotalUnitsSold,
+    AVG(LineTotal) AS AvgOrderValue,
+    
+    -- Conditional aggregations by category
+    SUM(CASE WHEN Category = 'Electronics' THEN LineTotal END) AS ElectronicsRevenue,
+    SUM(CASE WHEN Category = 'Electronics' THEN Quantity END) AS ElectronicsUnits,
+    COUNT(DISTINCT CASE WHEN Category = 'Electronics' THEN OrderID END) AS ElectronicsOrders,
+    
+    SUM(CASE WHEN Category = 'Clothing' THEN LineTotal END) AS ClothingRevenue,
+    SUM(CASE WHEN Category = 'Clothing' THEN Quantity END) AS ClothingUnits,
+    
+    SUM(CASE WHEN Category = 'Home & Garden' THEN LineTotal END) AS HomeGardenRevenue,
+    SUM(CASE WHEN Category = 'Books' THEN LineTotal END) AS BooksRevenue,
+    
+    -- Conditional by region
+    SUM(CASE WHEN Region = 'North America' THEN LineTotal END) AS NorthAmericaRevenue,
+    SUM(CASE WHEN Region = 'Europe' THEN LineTotal END) AS EuropeRevenue,
+    SUM(CASE WHEN Region = 'Asia' THEN LineTotal END) AS AsiaRevenue,
+    
+    -- Customer type analysis
+    SUM(CASE WHEN CustomerType = 'Business' THEN LineTotal END) AS BusinessRevenue,
+    SUM(CASE WHEN CustomerType = 'Consumer' THEN LineTotal END) AS ConsumerRevenue,
+    COUNT(DISTINCT CASE WHEN CustomerType = 'Business' THEN CustomerID END) AS BusinessCustomers,
+    COUNT(DISTINCT CASE WHEN CustomerType = 'Consumer' THEN CustomerID END) AS ConsumerCustomers,
+    
+    -- Order size analysis
+    SUM(CASE WHEN OrderSizeCategory = 'Large' THEN LineTotal END) AS LargeOrderRevenue,
+    SUM(CASE WHEN OrderSizeCategory = 'Medium' THEN LineTotal END) AS MediumOrderRevenue,
+    SUM(CASE WHEN OrderSizeCategory = 'Small' THEN LineTotal END) AS SmallOrderRevenue,
+    COUNT(DISTINCT CASE WHEN OrderSizeCategory = 'Large' THEN OrderID END) AS LargeOrderCount,
+    
+    -- Percentage calculations
+    SUM(CASE WHEN Category = 'Electronics' THEN LineTotal END) * 100.0 / 
+        NULLIF(SUM(LineTotal), 0) AS ElectronicsPercent,
+    
+    -- New vs returning (simplified)
+    COUNT(DISTINCT CASE 
+        WHEN OrderDate = (SELECT MIN(OrderDate) FROM Orders o2 WHERE o2.CustomerID = sd.CustomerID)
+        THEN CustomerID 
+    END) AS NewCustomersThisMonth,
+    
+    -- Repeat purchase rate (customers with >1 order)
+    COUNT(DISTINCT CASE 
+        WHEN (SELECT COUNT(*) FROM Orders o2 WHERE o2.CustomerID = sd.CustomerID) > 1
+        THEN CustomerID 
+    END) * 100.0 / 
+    NULLIF(COUNT(DISTINCT CustomerID), 0) AS RepeatCustomerPercentage
+    
+FROM SalesData sd
+GROUP BY 
+    YEAR(OrderDate),
+    MONTH(OrderDate),
+    DATENAME(MONTH, OrderDate),
+    DATEPART(QUARTER, OrderDate)
+ORDER BY OrderYear DESC, OrderMonth DESC;
+5. Important Notes / Common Mistakes
+
+COUNT(CASE WHEN ... THEN 1 END) counts non-NULL values
+
+SUM(CASE WHEN ... THEN column END) sums only matching rows
+
+NULLs are excluded from aggregates (unless using COUNT(*))
+
+Use ELSE 0 for SUM if you want zeros instead of NULLs
+
+Can be combined with GROUP BY for multi-dimensional analysis
+
+Common mistake: Forgetting END in CASE statement
+
+sql
+-- WRONG: Missing END
+SUM(CASE WHEN Salary > 50000 THEN Salary)  -- Syntax error
+
+-- CORRECT:
+SUM(CASE WHEN Salary > 50000 THEN Salary END)

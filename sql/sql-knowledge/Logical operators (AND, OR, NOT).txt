@@ -1,0 +1,74 @@
+
+Logical operators (AND, OR, NOT)
+1. Concept Explanation
+
+What it is: Operators to combine multiple conditions in WHERE clause.
+
+Why it is needed: To create complex filtering logic with multiple criteria.
+
+Where it is used: Complex business rules, multi-criteria searches, data validation.
+
+2. Syntax (MSSQL)
+
+sql
+condition1 AND condition2   -- Both must be true
+condition1 OR condition2    -- At least one must be true
+NOT condition              -- Reverse the condition
+3. Simple Example
+
+sql
+-- AND operator
+SELECT * FROM Employees
+WHERE Department = 'Sales' AND Salary > 50000;
+
+-- OR operator  
+SELECT * FROM Customers
+WHERE Country = 'USA' OR Country = 'Canada';
+
+-- NOT operator
+SELECT * FROM Products
+WHERE NOT Discontinued = 1;
+
+-- Combination
+SELECT * FROM Orders
+WHERE (Status = 'Shipped' OR Status = 'Processing')
+    AND NOT CustomerID IN (1001, 1002);
+4. Practical / Interview Example
+Problem: Find employees who are either in Sales department with salary > 60000 OR in Marketing department with salary > 55000, but not those hired before 2020.
+
+Solution:
+
+sql
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Department,
+    Salary,
+    HireDate
+FROM Employees
+WHERE (
+    (Department = 'Sales' AND Salary > 60000)
+    OR 
+    (Department = 'Marketing' AND Salary > 55000)
+)
+AND NOT HireDate < '2020-01-01'
+ORDER BY Department, Salary DESC;
+5. Important Notes / Common Mistakes
+
+Use parentheses to control evaluation order
+
+AND has higher precedence than OR
+
+NOT has highest precedence
+
+Use IN instead of multiple ORs for same column
+
+Common mistake: Missing parentheses in complex conditions
+
+sql
+-- WRONG: Gets different results than intended
+WHERE Department = 'Sales' AND Salary > 50000 OR Department = 'Marketing'
+
+-- CORRECT: Use parentheses
+WHERE (Department = 'Sales' AND Salary > 50000) OR Department = 'Marketing'

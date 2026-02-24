@@ -1,0 +1,69 @@
+FILTERING & CONDITIONS
+Comparison operators
+1. Concept Explanation
+
+What it is: Operators used to compare values in WHERE, HAVING, and CASE statements.
+
+Why it is needed: To filter and compare data based on specific conditions.
+
+Where it is used: Data filtering, conditional logic, data validation.
+
+2. Syntax (MSSQL)
+
+sql
+=      -- Equal to
+<> or != -- Not equal to
+>      -- Greater than
+<      -- Less than
+>=     -- Greater than or equal to
+<=     -- Less than or equal to
+!<     -- Not less than
+!>     -- Not greater than
+3. Simple Example
+
+sql
+-- Equal to
+SELECT * FROM Products WHERE Price = 19.99;
+
+-- Not equal to
+SELECT * FROM Customers WHERE Country <> 'USA';
+
+-- Greater than
+SELECT * FROM Orders WHERE OrderDate > '2023-01-01';
+
+-- Less than or equal to
+SELECT * FROM Employees WHERE Salary <= 50000;
+
+-- Combination
+SELECT * FROM Products 
+WHERE Price > 10 AND Price < 100;
+4. Practical / Interview Example
+Problem: Find all orders placed in January 2023 with total amount greater than $1000 but less than $5000, excluding cancelled orders.
+
+Solution:
+
+sql
+SELECT 
+    OrderID,
+    CustomerID,
+    OrderDate,
+    TotalAmount,
+    Status
+FROM Orders
+WHERE OrderDate >= '2023-01-01'
+    AND OrderDate < '2023-02-01'
+    AND TotalAmount > 1000
+    AND TotalAmount < 5000
+    AND Status != 'Cancelled'
+ORDER BY TotalAmount DESC;
+5. Important Notes / Common Mistakes
+
+Use <> for ANSI SQL compatibility (though != works in MSSQL)
+
+Date comparisons: Use standard format 'YYYY-MM-DD'
+
+String comparisons are case-insensitive by default
+
+NULL comparisons always return UNKNOWN (use IS NULL instead)
+
+Common mistake: Using = for NULL comparison instead of IS NULL

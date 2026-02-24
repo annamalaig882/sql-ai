@@ -1,0 +1,384 @@
+AGGREGATE FUNCTIONS
+COUNT
+1. Concept Explanation
+
+What it is: Returns the number of rows or non-NULL values.
+
+Why it is needed: To count records, calculate totals, measure data volume.
+
+Where it is used: Reporting totals, data analysis, summary statistics.
+
+2. Syntax (MSSQL)
+
+sql
+COUNT(*)            -- Counts all rows including NULLs
+COUNT(column)       -- Counts non-NULL values in column
+COUNT(DISTINCT col) -- Counts distinct non-NULL values
+3. Simple Example
+
+sql
+-- Count all employees
+SELECT COUNT(*) AS TotalEmployees FROM Employees;
+
+-- Count employees with phone numbers
+SELECT COUNT(Phone) AS EmployeesWithPhone FROM Employees;
+
+-- Count distinct departments
+SELECT COUNT(DISTINCT Department) AS UniqueDepartments FROM Employees;
+
+-- Count with condition
+SELECT COUNT(*) AS ActiveEmployees 
+FROM Employees 
+WHERE Active = 1;
+4. Practical / Interview Example
+Problem: Calculate various employee counts: total, active, with managers, and by department.
+
+Solution:
+
+sql
+SELECT 
+    -- Total counts
+    COUNT(*) AS TotalEmployees,
+    COUNT(CASE WHEN Active = 1 THEN 1 END) AS ActiveEmployees,
+    COUNT(ManagerID) AS EmployeesWithManager,
+    
+    -- Department breakdown
+    COUNT(DISTINCT DepartmentID) AS TotalDepartments,
+    
+    -- Percentage calculations
+    CAST(COUNT(CASE WHEN Active = 1 THEN 1 END) * 100.0 / COUNT(*) AS DECIMAL(5,2)) AS ActivePercentage,
+    
+    -- Average department size
+    CAST(COUNT(*) * 1.0 / COUNT(DISTINCT DepartmentID) AS DECIMAL(10,2)) AS AvgDeptSize
+    
+FROM Employees;
+5. Important Notes / Common Mistakes
+
+COUNT(*) is fastest as it doesn't check column values
+
+COUNT(column) excludes NULLs
+
+Use COUNT(1) as alternative to COUNT(*)
+
+COUNT with DISTINCT can be slow on large tables
+
+Common mistake: Using COUNT on wrong column (getting different results)
+
+
+
+SUM
+1. Concept Explanation
+
+What it is: Returns the total sum of numeric values.
+
+Why it is needed: To calculate totals, aggregates, cumulative values.
+
+Where it is used: Financial reports, sales totals, inventory sums.
+
+2. Syntax (MSSQL)
+
+sql
+SUM(column)               -- Sum of column values
+SUM(DISTINCT column)      -- Sum of distinct values
+SUM(CASE WHEN ...)        -- Conditional sum
+3. Simple Example
+
+sql
+-- Total salary expense
+SELECT SUM(Salary) AS TotalSalaryExpense FROM Employees;
+
+-- Sum of distinct salaries (rarely used)
+SELECT SUM(DISTINCT Salary) AS SumOfUniqueSalaries FROM Employees;
+
+-- Conditional sum
+SELECT 
+    SUM(CASE WHEN Department = 'Sales' THEN Salary END) AS SalesSalaryTotal,
+    SUM(CASE WHEN Department = 'IT' THEN Salary END) AS ITSalaryTotal
+FROM Employees;
+4. Practical / Interview Example
+Problem: Calculate monthly sales totals with year-over-year comparison.
+
+Solution:
+
+sql
+SELECT 
+    YEAR(OrderDate) AS OrderYear,
+    MONTH(OrderDate) AS OrderMonth,
+    DATENAME(MONTH, OrderDate) AS MonthName,
+    COUNT(*) AS OrderCount,
+    SUM(TotalAmount) AS MonthlySales,
+    SUM(TotalAmount) / COUNT(DISTINCT CustomerID) AS AvgSalePerCustomer,
+    
+    -- Year-over-year comparison (using LAG)
+    LAG(SUM(TotalAmount)) OVER (ORDER BY YEAR(OrderDate), MONTH(OrderDate)) AS PreviousMonthSales,
+    
+    -- Percentage change
+    CASE 
+        WHEN LAG(SUM(TotalAmount)) OVER (ORDER BY YEAR(OrderDate), MONTH(OrderDate)) > 0
+        THEN (SUM(TotalAmount) - LAG(SUM(TotalAmount)) OVER (ORDER BY YEAR(OrderDate), MONTH(OrderDate))) * 100.0 / 
+             LAG(SUM(TotalAmount)) OVER (ORDER BY YEAR(OrderDate), MONTH(OrderDate))
+        ELSE NULL
+    END AS SalesGrowthPercent
+    
+FROM Orders
+WHERE OrderDate >= DATEADD(YEAR, -2, GETDATE())
+GROUP BY YEAR(OrderDate), MONTH(OrderDate), DATENAME(MONTH, OrderDate)
+ORDER BY OrderYear DESC, OrderMonth DESC;
+5. Important Notes / Common Mistakes
+
+SUM ignores NULL values
+
+SUM on empty set returns NULL (use ISNULL or COALESCE)
+
+Use appropriate data type to avoid overflow
+
+For money, use DECIMAL instead of FLOAT
+
+Common mistake: SUM on non-numeric column
+
+AVG
+1. Concept Explanation
+
+What it is: Returns the average (mean) of numeric values.
+
+Why it is needed: To calculate central tendency, averages, typical values.
+
+Where it is used: Performance metrics, average scores, financial averages.
+
+2. Syntax (MSSQL)
+
+sql
+AVG(column)               -- Average of column values
+AVG(DISTINCT column)      -- Average of distinct values
+3. Simple Example
+
+sql
+-- Average salary
+SELECT AVG(Salary) AS AverageSalary FROM Employees;
+
+-- Average with WHERE
+SELECT AVG(Salary) AS AvgITSalary 
+FROM Employees 
+WHERE Department = 'IT';
+
+-- Multiple averages
+SELECT 
+    AVG(Salary) AS OverallAvg,
+    AVG(CASE WHEN Department = 'Sales' THEN Salary END) AS SalesAvg,
+    AVG(CASE WHEN Department = 'IT' THEN Salary END) AS ITAvg
+FROM Employees;
+4. Practical / Interview Example
+Problem: Calculate average order value by customer segment, excluding outliers (orders below $10 or above $5000).
+
+Solution:
+
+sql
+WITH OrderStats AS (
+    SELECT 
+        c.CustomerSegment,
+        o.TotalAmount,
+        COUNT(*) OVER (PARTITION BY c.CustomerSegment) AS SegmentOrderCount,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY o.TotalAmount) 
+            OVER (PARTITION BY c.CustomerSegment) AS SegmentMedian
+    FROM Orders o
+    JOIN Customers c ON o.CustomerID = c.CustomerID
+    WHERE o.TotalAmount BETWEEN 10 AND 5000
+        AND o.OrderDate >= DATEADD(YEAR, -1, GETDATE())
+)
+SELECT 
+    CustomerSegment,
+    COUNT(*) AS OrderCount,
+    AVG(TotalAmount) AS AverageOrderValue,
+    MIN(TotalAmount) AS MinOrderValue,
+    MAX(TotalAmount) AS MaxOrderValue,
+    MAX(SegmentMedian) AS MedianOrderValue,
+    AVG(TotalAmount) / MAX(SegmentMedian) AS AvgToMedianRatio
+FROM OrderStats
+GROUP BY CustomerSegment
+ORDER BY AverageOrderValue DESC;
+5. Important Notes / Common Mistakes
+
+AVG ignores NULL values
+
+AVG(DISTINCT) gives different result (average of unique values)
+
+Use CAST for integer division: AVG(CAST(col AS FLOAT))
+
+Consider median for skewed distributions
+
+Common mistake: Forgetting NULLs are excluded from average
+
+MIN
+1. Concept Explanation
+
+What it is: Returns the minimum (lowest) value.
+
+Why it is needed: To find smallest values, lower bounds, minimum requirements.
+
+Where it is used: Price comparisons, performance minimums, date ranges.
+
+2. Syntax (MSSQL)
+
+sql
+MIN(column)               -- Minimum value
+MIN(DISTINCT column)      -- Minimum of distinct values (same as MIN)
+3. Simple Example
+
+sql
+-- Minimum salary
+SELECT MIN(Salary) AS MinimumSalary FROM Employees;
+
+-- Minimum price by category
+SELECT 
+    Category,
+    MIN(Price) AS MinPrice
+FROM Products
+GROUP BY Category;
+
+-- Earliest hire date
+SELECT MIN(HireDate) AS FirstHireDate FROM Employees;
+4. Practical / Interview Example
+Problem: Find the first order date for each customer and calculate days since first purchase.
+
+Solution:
+
+sql
+WITH FirstOrders AS (
+    SELECT 
+        CustomerID,
+        MIN(OrderDate) AS FirstOrderDate,
+        COUNT(*) AS TotalOrders,
+        SUM(TotalAmount) AS LifetimeValue
+    FROM Orders
+    GROUP BY CustomerID
+)
+SELECT 
+    c.CustomerID,
+    c.FirstName,
+    c.LastName,
+    fo.FirstOrderDate,
+    fo.TotalOrders,
+    fo.LifetimeValue,
+    DATEDIFF(DAY, fo.FirstOrderDate, GETDATE()) AS DaysSinceFirstPurchase,
+    DATEDIFF(MONTH, fo.FirstOrderDate, GETDATE()) AS MonthsSinceFirstPurchase,
+    
+    -- Customer segment based on recency
+    CASE 
+        WHEN DATEDIFF(MONTH, fo.FirstOrderDate, GETDATE()) <= 3 THEN 'New'
+        WHEN DATEDIFF(MONTH, fo.FirstOrderDate, GETDATE()) <= 12 THEN 'Active'
+        WHEN DATEDIFF(MONTH, fo.FirstOrderDate, GETDATE()) <= 24 THEN 'Occasional'
+        ELSE 'Dormant'
+    END AS CustomerSegment
+    
+FROM Customers c
+JOIN FirstOrders fo ON c.CustomerID = fo.CustomerID
+ORDER BY fo.FirstOrderDate;
+5. Important Notes / Common Mistakes
+
+MIN works with numbers, dates, and strings
+
+MIN ignores NULL values
+
+For dates, returns earliest date
+
+For strings, returns first in alphabetical order
+
+Common mistake: Using MIN on wrong data type
+
+MAX
+1. Concept Explanation
+
+What it is: Returns the maximum (highest) value.
+
+Why it is needed: To find largest values, upper bounds, maximum limits.
+
+Where it is used: Price ceilings, performance maximums, latest dates.
+
+2. Syntax (MSSQL)
+
+sql
+MAX(column)               -- Maximum value
+MAX(DISTINCT column)      -- Maximum of distinct values (same as MAX)
+3. Simple Example
+
+sql
+-- Maximum salary
+SELECT MAX(Salary) AS MaximumSalary FROM Employees;
+
+-- Latest order date
+SELECT MAX(OrderDate) AS LatestOrder FROM Orders;
+
+-- Maximum price by category
+SELECT 
+    Category,
+    MAX(Price) AS MaxPrice,
+    MAX(Price) - MIN(Price) AS PriceRange
+FROM Products
+GROUP BY Category;
+4. Practical / Interview Example
+Problem: Find the most recent activity for each user and their inactivity period.
+
+Solution:
+
+sql
+WITH UserActivity AS (
+    SELECT 
+        UserID,
+        MAX(ActivityDate) AS LastActivityDate,
+        COUNT(*) AS TotalActivities
+    FROM UserLogs
+    WHERE ActivityDate >= DATEADD(MONTH, -6, GETDATE())
+    GROUP BY UserID
+),
+CurrentStatus AS (
+    SELECT 
+        u.UserID,
+        u.UserName,
+        u.RegistrationDate,
+        ua.LastActivityDate,
+        ua.TotalActivities,
+        DATEDIFF(DAY, ua.LastActivityDate, GETDATE()) AS DaysInactive,
+        
+        -- User status classification
+        CASE 
+            WHEN DATEDIFF(DAY, ua.LastActivityDate, GETDATE()) <= 7 THEN 'Active'
+            WHEN DATEDIFF(DAY, ua.LastActivityDate, GETDATE()) <= 30 THEN 'Inactive'
+            WHEN DATEDIFF(DAY, ua.LastActivityDate, GETDATE()) <= 90 THEN 'Dormant'
+            ELSE 'Lost'
+        END AS UserStatus,
+        
+        -- Days since registration
+        DATEDIFF(DAY, u.RegistrationDate, GETDATE()) AS DaysSinceRegistration
+        
+    FROM Users u
+    LEFT JOIN UserActivity ua ON u.UserID = ua.UserID
+)
+SELECT 
+    UserStatus,
+    COUNT(*) AS UserCount,
+    AVG(DaysInactive) AS AvgDaysInactive,
+    MIN(DaysInactive) AS MinDaysInactive,
+    MAX(DaysInactive) AS MaxDaysInactive,
+    SUM(TotalActivities) AS TotalActivities
+FROM CurrentStatus
+GROUP BY UserStatus
+ORDER BY 
+    CASE UserStatus
+        WHEN 'Active' THEN 1
+        WHEN 'Inactive' THEN 2
+        WHEN 'Dormant' THEN 3
+        WHEN 'Lost' THEN 4
+    END;
+5. Important Notes / Common Mistakes
+
+MAX works with numbers, dates, and strings
+
+MAX ignores NULL values
+
+For dates, returns latest date
+
+For strings, returns last in alphabetical order
+
+Common mistake: Using MAX on wrong data type context
+
+

@@ -1,0 +1,505 @@
+JOINS
+INNER JOIN
+1. Concept Explanation
+
+What it is: Returns only matching rows from both tables.
+
+Why it is needed: To combine related data from multiple tables.
+
+Where it is used: Combining orders with customers, products with categories, etc.
+
+2. Syntax (MSSQL)
+
+sql
+-- Explicit INNER JOIN (recommended)
+SELECT columns
+FROM table1
+INNER JOIN table2 ON table1.column = table2.column;
+
+-- Implicit INNER JOIN (old style, not recommended)
+SELECT columns
+FROM table1, table2
+WHERE table1.column = table2.column;
+3. Simple Example
+
+sql
+-- Employees with their departments
+SELECT 
+    e.EmployeeID,
+    e.FirstName,
+    e.LastName,
+    d.DepartmentName
+FROM Employees e
+INNER JOIN Departments d ON e.DeptID = d.DeptID;
+
+-- Multiple joins
+SELECT 
+    o.OrderID,
+    c.FirstName + ' ' + c.LastName AS CustomerName,
+    p.ProductName,
+    od.Quantity,
+    od.UnitPrice
+FROM Orders o
+INNER JOIN Customers c ON o.CustomerID = c.CustomerID
+INNER JOIN OrderDetails od ON o.OrderID = od.OrderID
+INNER JOIN Products p ON od.ProductID = p.ProductID;
+4. Practical / Interview Example
+Problem: Find all orders placed in January 2023 with customer details and product information, calculate line totals.
+
+Solution:
+
+sql
+SELECT 
+    o.OrderID,
+    o.OrderDate,
+    c.CustomerID,
+    c.CompanyName,
+    c.ContactName,
+    p.ProductID,
+    p.ProductName,
+    p.CategoryID,
+    od.Quantity,
+    od.UnitPrice,
+    od.Quantity * od.UnitPrice AS LineTotal,
+    o.ShippedDate,
+    DATEDIFF(DAY, o.OrderDate, o.ShippedDate) AS DaysToShip
+FROM Orders o
+INNER JOIN Customers c ON o.CustomerID = c.CustomerID
+INNER JOIN OrderDetails od ON o.OrderID = od.OrderID
+INNER JOIN Products p ON od.ProductID = p.ProductID
+WHERE o.OrderDate >= '2023-01-01'
+    AND o.OrderDate < '2023-02-01'
+    AND o.ShippedDate IS NOT NULL
+ORDER BY o.OrderDate, c.CompanyName, p.ProductName;
+5. Important Notes / Common Mistakes
+
+INNER JOIN is default JOIN type
+
+Returns only matching rows from both tables
+
+Use table aliases for readability
+
+Join conditions should use indexed columns
+
+Multiple joins: Order doesn't matter for INNER JOIN
+
+Common mistake: Cartesian product when forgetting JOIN condition
+
+LEFT JOIN
+1. Concept Explanation
+
+What it is: Returns all rows from left table and matching rows from right table (NULLs for no match).
+
+Why it is needed: To include all records from main table even if related data doesn't exist.
+
+Where it is used: Showing all customers with/without orders, all products with/without sales.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT columns
+FROM left_table
+LEFT JOIN right_table ON left_table.column = right_table.column;
+-- Also called LEFT OUTER JOIN
+3. Simple Example
+
+sql
+-- All employees with their manager (if exists)
+SELECT 
+    e.EmployeeID,
+    e.FirstName + ' ' + e.LastName AS EmployeeName,
+    m.FirstName + ' ' + m.LastName AS ManagerName
+FROM Employees e
+LEFT JOIN Employees m ON e.ManagerID = m.EmployeeID;
+
+-- All customers with their orders (including those without orders)
+SELECT 
+    c.CustomerID,
+    c.CompanyName,
+    o.OrderID,
+    o.OrderDate,
+    o.TotalAmount
+FROM Customers c
+LEFT JOIN Orders o ON c.CustomerID = o.CustomerID
+ORDER BY c.CompanyName, o.OrderDate DESC;
+4. Practical / Interview Example
+Problem: Analyze product performance: show all products with their total sales, including products that never sold.
+
+Solution:
+
+sql
+SELECT 
+    p.ProductID,
+    p.ProductName,
+    p.Category,
+    p.UnitPrice,
+    COALESCE(SUM(od.Quantity), 0) AS TotalUnitsSold,
+    COALESCE(SUM(od.Quantity * od.UnitPrice), 0) AS TotalRevenue,
+    COALESCE(COUNT(DISTINCT o.OrderID), 0) AS OrderCount,
+    CASE 
+        WHEN COALESCE(SUM(od.Quantity), 0) > 0 THEN 'Sold'
+        ELSE 'Never Sold'
+    END AS SalesStatus,
+    COALESCE(AVG(od.Quantity), 0) AS AvgUnitsPerOrder
+FROM Products p
+LEFT JOIN OrderDetails od ON p.ProductID = od.ProductID
+LEFT JOIN Orders o ON od.OrderID = o.OrderID
+    AND o.OrderDate >= DATEADD(YEAR, -1, GETDATE())  -- Filter in JOIN, not WHERE
+GROUP BY 
+    p.ProductID,
+    p.ProductName,
+    p.Category,
+    p.UnitPrice
+ORDER BY 
+    TotalRevenue DESC,
+    p.ProductName;
+5. Important Notes / Common Mistakes
+
+Returns all rows from left table
+
+NULLs for non-matching right table rows
+
+Filtering on right table columns in WHERE removes NULLs (turns to INNER JOIN)
+
+Filter right table in JOIN condition, not WHERE, to preserve left rows
+
+Common mistake: Wrong table order in LEFT JOIN
+
+sql
+-- WRONG: This returns all orders, not all customers
+SELECT c.CustomerName, o.OrderID
+FROM Orders o
+LEFT JOIN Customers c ON o.CustomerID = c.CustomerID;
+
+-- CORRECT: This returns all customers
+SELECT c.CustomerName, o.OrderID
+FROM Customers c
+LEFT JOIN Orders o ON c.CustomerID = o.CustomerID;
+RIGHT JOIN
+1. Concept Explanation
+
+What it is: Returns all rows from right table and matching rows from left table (NULLs for no match).
+
+Why it is needed: Less common than LEFT JOIN, but useful when right table is primary focus.
+
+Where it is used: Showing all orders with customer details (if orders is right table).
+
+2. Syntax (MSSQL)
+
+sql
+SELECT columns
+FROM left_table
+RIGHT JOIN right_table ON left_table.column = right_table.column;
+-- Also called RIGHT OUTER JOIN
+3. Simple Example
+
+sql
+-- All orders with customer details (orders table as focus)
+SELECT 
+    o.OrderID,
+    o.OrderDate,
+    c.CustomerName,
+    c.Country
+FROM Customers c
+RIGHT JOIN Orders o ON c.CustomerID = o.CustomerID;
+
+-- All departments with employees (including empty departments)
+SELECT 
+    d.DepartmentName,
+    e.FirstName + ' ' + e.LastName AS EmployeeName,
+    e.JobTitle
+FROM Employees e
+RIGHT JOIN Departments d ON e.DeptID = d.DeptID
+ORDER BY d.DepartmentName, e.LastName;
+4. Practical / Interview Example
+Problem: Find all shipping methods and count how many orders used each method, including methods never used.
+
+Solution:
+
+sql
+SELECT 
+    s.ShippingMethodID,
+    s.MethodName,
+    s.Cost,
+    s.EstimatedDays,
+    COUNT(o.OrderID) AS OrdersCount,
+    COALESCE(SUM(o.TotalAmount), 0) AS TotalAmountShipped,
+    COALESCE(AVG(DATEDIFF(DAY, o.OrderDate, o.ShippedDate)), 0) AS AvgDaysToShip
+FROM Orders o
+RIGHT JOIN ShippingMethods s ON o.ShippingMethodID = s.ShippingMethodID
+    AND o.OrderDate >= DATEADD(YEAR, -1, GETDATE())
+GROUP BY 
+    s.ShippingMethodID,
+    s.MethodName,
+    s.Cost,
+    s.EstimatedDays
+ORDER BY 
+    OrdersCount DESC,
+    s.MethodName;
+5. Important Notes / Common Mistakes
+
+RIGHT JOIN is just LEFT JOIN with tables reversed
+
+Rarely used in practice (LEFT JOIN is preferred for readability)
+
+Returns all rows from right table
+
+NULLs for non-matching left table rows
+
+Common mistake: Using RIGHT JOIN when LEFT JOIN would be clearer
+
+sql
+-- Using RIGHT JOIN (less clear)
+SELECT c.CustomerName, o.OrderID
+FROM Orders o
+RIGHT JOIN Customers c ON o.CustomerID = c.CustomerID;
+
+-- Same query with LEFT JOIN (clearer)
+SELECT c.CustomerName, o.OrderID
+FROM Customers c
+LEFT JOIN Orders o ON c.CustomerID = o.CustomerID;
+FULL JOIN
+1. Concept Explanation
+
+What it is: Returns all rows when there's a match in either table (combination of LEFT and RIGHT JOIN).
+
+Why it is needed: To see all records from both tables, matching where possible.
+
+Where it is used: Data reconciliation, finding mismatches, comparing two datasets.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT columns
+FROM table1
+FULL JOIN table2 ON table1.column = table2.column;
+-- Also called FULL OUTER JOIN
+3. Simple Example
+
+sql
+-- All employees and all departments (shows unmatched on both sides)
+SELECT 
+    COALESCE(e.FirstName + ' ' + e.LastName, 'No Employee') AS EmployeeName,
+    COALESCE(d.DepartmentName, 'No Department') AS DepartmentName
+FROM Employees e
+FULL JOIN Departments d ON e.DeptID = d.DeptID
+ORDER BY 
+    CASE WHEN e.EmployeeID IS NULL THEN 1 ELSE 0 END,
+    d.DepartmentName,
+    e.LastName;
+
+-- Customers and orders (shows customers without orders AND orders without customers)
+SELECT 
+    c.CustomerID,
+    c.CompanyName,
+    o.OrderID,
+    o.OrderDate,
+    o.TotalAmount
+FROM Customers c
+FULL JOIN Orders o ON c.CustomerID = o.CustomerID
+WHERE c.CustomerID IS NULL OR o.OrderID IS NULL;  -- Find mismatches
+4. Practical / Interview Example
+Problem: Reconcile product inventory between two systems (legacy and new).
+
+Solution:
+
+sql
+WITH ProductComparison AS (
+    SELECT 
+        COALESCE(l.ProductCode, n.ProductCode) AS ProductCode,
+        l.ProductName AS LegacyProductName,
+        n.ProductName AS NewProductName,
+        l.Quantity AS LegacyQuantity,
+        n.Quantity AS NewQuantity,
+        l.Price AS LegacyPrice,
+        n.Price AS NewPrice,
+        CASE 
+            WHEN l.ProductCode IS NULL THEN 'Only in New System'
+            WHEN n.ProductCode IS NULL THEN 'Only in Legacy System'
+            WHEN l.Quantity <> n.Quantity OR l.Price <> n.Price THEN 'Data Mismatch'
+            ELSE 'Match'
+        END AS Status,
+        ABS(COALESCE(l.Quantity, 0) - COALESCE(n.Quantity, 0)) AS QuantityDiff,
+        ABS(COALESCE(l.Price, 0) - COALESCE(n.Price, 0)) AS PriceDiff
+    FROM LegacyProducts l
+    FULL JOIN NewProducts n ON l.ProductCode = n.ProductCode
+)
+SELECT 
+    Status,
+    COUNT(*) AS RecordCount,
+    SUM(QuantityDiff) AS TotalQuantityDiff,
+    AVG(PriceDiff) AS AvgPriceDiff
+FROM ProductComparison
+GROUP BY Status
+ORDER BY 
+    CASE Status
+        WHEN 'Data Mismatch' THEN 1
+        WHEN 'Only in Legacy System' THEN 2
+        WHEN 'Only in New System' THEN 3
+        ELSE 4
+    END;
+5. Important Notes / Common Mistakes
+
+Returns all rows from both tables
+
+NULLs where no match exists
+
+Use COALESCE to handle NULLs meaningfully
+
+Rarely needed in everyday queries
+
+Can be expensive on large tables
+
+Common mistake: Using FULL JOIN when LEFT JOIN would suffice
+
+Self Join
+1. Concept Explanation
+
+What it is: Joining a table to itself to compare rows within the same table.
+
+Why it is needed: To represent hierarchical data or compare rows in same table.
+
+Where it is used: Employee-manager relationships, product hierarchies, finding duplicates.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT t1.columns, t2.columns
+FROM table t1
+JOIN table t2 ON t1.column = t2.column;
+-- Use different aliases for same table
+3. Simple Example
+
+sql
+-- Employee with their manager
+SELECT 
+    e.EmployeeID,
+    e.FirstName + ' ' + e.LastName AS EmployeeName,
+    e.JobTitle,
+    m.EmployeeID AS ManagerID,
+    m.FirstName + ' ' + m.LastName AS ManagerName,
+    m.JobTitle AS ManagerJobTitle
+FROM Employees e
+LEFT JOIN Employees m ON e.ManagerID = m.EmployeeID;
+
+-- Find employees in same department
+SELECT 
+    e1.EmployeeID AS Emp1_ID,
+    e1.FirstName + ' ' + e1.LastName AS Emp1_Name,
+    e2.EmployeeID AS Emp2_ID,
+    e2.FirstName + ' ' + e2.LastName AS Emp2_Name,
+    e1.Department
+FROM Employees e1
+INNER JOIN Employees e2 ON e1.Department = e2.Department
+    AND e1.EmployeeID < e2.EmployeeID  -- Avoid duplicates and self-pairing
+ORDER BY e1.Department, e1.LastName;
+4. Practical / Interview Example
+Problem: Find employees who earn more than their managers.
+
+Solution:
+
+sql
+SELECT 
+    e.EmployeeID,
+    e.FirstName + ' ' + e.LastName AS EmployeeName,
+    e.Salary AS EmployeeSalary,
+    e.ManagerID,
+    m.FirstName + ' ' + m.LastName AS ManagerName,
+    m.Salary AS ManagerSalary,
+    e.Salary - m.Salary AS SalaryDifference
+FROM Employees e
+INNER JOIN Employees m ON e.ManagerID = m.EmployeeID
+WHERE e.Salary > m.Salary
+ORDER BY SalaryDifference DESC;
+5. Important Notes / Common Mistakes
+
+Must use table aliases (required)
+
+Can use any JOIN type (INNER, LEFT, etc.)
+
+Watch for circular references in hierarchies
+
+Use < or > in JOIN condition to avoid duplicate pairs
+
+For hierarchies, consider recursive CTE instead
+
+Common mistake: Cartesian product when JOIN condition is wrong
+
+Join vs Subquery
+1. Concept Explanation
+
+What it is: Two different approaches to combine data from multiple tables.
+
+Why it is needed: Different scenarios require different approaches for performance and readability.
+
+Where it is used: Complex data retrieval where multiple approaches exist.
+
+2. Comparison
+
+Aspect	JOIN	SUBQUERY
+Performance	Usually faster, especially with indexes	Can be slower, but sometimes optimized
+Readability	Often clearer for simple relationships	Can be clearer for complex filters
+Result set	Returns columns from multiple tables	Can return scalar, single column, or table
+Use case	Combining tables horizontally	Filtering, calculations, EXISTS checks
+NULL handling	Depends on JOIN type	IN/NOT IN have NULL issues
+3. Simple Example
+
+sql
+-- Using JOIN (get employees with departments)
+SELECT e.EmployeeName, d.DepartmentName
+FROM Employees e
+INNER JOIN Departments d ON e.DeptID = d.DeptID;
+
+-- Using Subquery (same result)
+SELECT 
+    e.EmployeeName,
+    (SELECT DepartmentName FROM Departments d WHERE d.DeptID = e.DeptID) AS DepartmentName
+FROM Employees e
+WHERE e.DeptID IN (SELECT DeptID FROM Departments);
+
+-- EXISTS is often better than IN for subqueries
+SELECT e.*
+FROM Employees e
+WHERE EXISTS (
+    SELECT 1 FROM Departments d 
+    WHERE d.DeptID = e.DeptID
+);
+4. Practical / Interview Example
+Problem: Find customers who have placed orders above average order value.
+
+Solution:
+
+sql
+-- Using JOIN approach
+WITH AvgOrderValue AS (
+    SELECT AVG(TotalAmount) AS AvgAmount FROM Orders
+)
+SELECT 
+    c.CustomerID,
+    c.CompanyName,
+    COUNT(o.OrderID) AS OrderCount,
+    AVG(o.TotalAmount) AS AvgCustomerOrder,
+    MAX(o.TotalAmount) AS MaxOrder
+FROM Customers c
+JOIN Orders o ON c.CustomerID = o.CustomerID
+CROSS JOIN AvgOrderValue aov
+GROUP BY c.CustomerID, c.CompanyName, aov.AvgAmount
+HAVING AVG(o.TotalAmount) > aov.AvgAmount
+ORDER BY AvgCustomerOrder DESC;
+
+-- Using Subquery approach
+SELECT 
+    c.CustomerID,
+    c.CompanyName,
+    (SELECT COUNT(*) FROM Orders o WHERE o.CustomerID = c.CustomerID) AS OrderCount,
+    (SELECT AVG(TotalAmount) FROM Orders o WHERE o.CustomerID = c.CustomerID) AS AvgCustomerOrder,
+    (SELECT MAX(TotalAmount) FROM Orders o WHERE o.CustomerID = c.CustomerID) AS MaxOrder
+FROM Customers c
+WHERE (SELECT AVG(TotalAmount) FROM Orders o WHERE o.CustomerID = c.CustomerID) > 
+      (SELECT AVG(TotalAmount) FROM Orders)
+ORDER BY AvgCustomerOrder DESC;
+5. Important Notes / Common Mistakes
+
+JOIN is usually better for combining data from multiple tables
+
+Subqueries are better for:

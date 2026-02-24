@@ -1,0 +1,190 @@
+DUPLICATES & DATA CLEANING
+Find duplicate records
+1. Concept Explanation
+
+What it is: Identifying duplicate rows in a table.
+
+Why it is needed: Data quality, preventing duplicate entries, cleanup.
+
+Where it is used: Data migration, cleanup, deduplication processes.
+
+2. Methods for Finding Duplicates
+
+sql
+-- Method 1: Using GROUP BY and HAVING
+SELECT column1, column2, COUNT(*)
+FROM table
+GROUP BY column1, column2
+HAVING COUNT(*) > 1;
+
+-- Method 2: Using ROW_NUMBER()
+WITH DuplicatesCTE AS (
+    SELECT *,
+        ROW_NUMBER() OVER (
+            PARTITION BY column1, column2 
+            ORDER BY (SELECT NULL)
+        ) AS RowNum
+    FROM table
+)
+SELECT * FROM DuplicatesCTE WHERE RowNum > 1;
+
+-- Method 3: Using EXISTS
+SELECT t1.*
+FROM table t1
+WHERE EXISTS (
+    SELECT 1
+    FROM table t2
+    WHERE t2.column1 = t1.column1
+        AND t2.column2 = t1.column2
+        AND t2.id > t1.id  -- Assuming unique ID
+);
+3. Simple Example
+
+sql
+-- Find duplicate employees by email
+SELECT Email, COUNT(*) AS DuplicateCount
+FROM Employees
+GROUP BY Email
+HAVING COUNT(*) > 1;
+
+-- Show all duplicate rows with details
+WITH DuplicateEmails AS (
+    SELECT Email, COUNT(*) AS DuplicateCount
+    FROM Employees
+    GROUP BY Email
+    HAVING COUNT(*) > 1
+)
+SELECT e.*
+FROM Employees e
+JOIN DuplicateEmails de ON e.Email = de.Email
+ORDER BY e.Email, e.EmployeeID;
+
+-- Find duplicate orders by customer and date
+SELECT 
+    CustomerID,
+    CAST(OrderDate AS DATE) AS OrderDateOnly,
+    COUNT(*) AS DuplicateCount
+FROM Orders
+GROUP BY CustomerID, CAST(OrderDate AS DATE)
+HAVING COUNT(*) > 1;
+4. Practical / Interview Example
+Problem: Identify potential duplicate customers based on multiple criteria.
+
+Solution:
+
+sql
+WITH CustomerDuplicates AS (
+    SELECT 
+        CustomerID,
+        CompanyName,
+        ContactName,
+        Email,
+        Phone,
+        Address,
+        City,
+        PostalCode,
+        
+        -- Create match keys
+        UPPER(TRIM(CompanyName)) AS CompanyKey,
+        UPPER(TRIM(Email)) AS EmailKey,
+        UPPER(REPLACE(REPLACE(REPLACE(Phone, ' ', ''), '-', ''), '(', '')) AS PhoneKey,
+        UPPER(TRIM(Address) + ' ' + TRIM(City) + ' ' + TRIM(PostalCode)) AS AddressKey,
+        
+        -- Find potential duplicates using fuzzy matching
+        ROW_NUMBER() OVER (
+            PARTITION BY 
+                UPPER(TRIM(CompanyName)),
+                UPPER(TRIM(Email))
+            ORDER BY CustomerID
+        ) AS DupByCompanyEmail,
+        
+        ROW_NUMBER() OVER (
+            PARTITION BY 
+                UPPER(TRIM(Email))
+            ORDER BY CustomerID
+        ) AS DupByEmail,
+        
+        ROW_NUMBER() OVER (
+            PARTITION BY 
+                UPPER(REPLACE(REPLACE(REPLACE(Phone, ' ', ''), '-', ''), '(', ''))
+            ORDER BY CustomerID
+        ) AS DupByPhone,
+        
+        ROW_NUMBER() OVER (
+            PARTITION BY 
+                UPPER(TRIM(Address) + ' ' + TRIM(City) + ' ' + TRIM(PostalCode))
+            ORDER BY CustomerID
+        ) AS DupByAddress
+        
+    FROM Customers
+),
+DuplicateAnalysis AS (
+    SELECT 
+        *,
+        CASE 
+            WHEN DupByCompanyEmail > 1 THEN 'Duplicate Company/Email'
+            WHEN DupByEmail > 1 THEN 'Duplicate Email'
+            WHEN DupByPhone > 1 THEN 'Duplicate Phone'
+            WHEN DupByAddress > 1 THEN 'Duplicate Address'
+            ELSE 'Unique'
+        END AS DuplicateType,
+        
+        -- Combined duplicate score
+        CASE 
+            WHEN DupByCompanyEmail > 1 THEN 3
+            WHEN DupByEmail > 1 THEN 2
+            WHEN DupByPhone > 1 THEN 2
+            WHEN DupByAddress > 1 THEN 1
+            ELSE 0
+        END AS DuplicateScore
+        
+    FROM CustomerDuplicates
+)
+SELECT 
+    CustomerID,
+    CompanyName,
+    ContactName,
+    Email,
+    Phone,
+    Address,
+    City,
+    PostalCode,
+    DuplicateType,
+    DuplicateScore,
+    
+    -- Group identifier for duplicates
+    MIN(CustomerID) OVER (
+        PARTITION BY 
+            CASE 
+                WHEN DupByCompanyEmail > 1 THEN CompanyKey + '|' + EmailKey
+                WHEN DupByEmail > 1 THEN EmailKey
+                WHEN DupByPhone > 1 THEN PhoneKey
+                WHEN DupByAddress > 1 THEN AddressKey
+                ELSE CAST(CustomerID AS VARCHAR(50))
+            END
+    ) AS DuplicateGroupID,
+    
+    -- Suggested action
+    CASE 
+        WHEN DuplicateScore >= 3 THEN 'Merge - High Priority'
+        WHEN DuplicateScore = 2 THEN 'Review - Medium Priority'
+        WHEN DuplicateScore = 1 THEN 'Monitor - Low Priority'
+        ELSE 'No Action'
+    END AS RecommendedAction
+    
+FROM DuplicateAnalysis
+WHERE DuplicateScore > 0
+ORDER BY DuplicateScore DESC, DuplicateGroupID, CustomerID;
+5. Important Notes / Common Mistakes
+
+Define what constitutes a duplicate (all columns vs key columns)
+
+Consider case sensitivity and whitespace
+
+Use TRIM() and UPPER() for consistent comparison
+
+For large tables, use efficient methods (ROW_NUMBER)
+
+Test with sample data first
+
+Common mistake: Forgetting to handle NULLs in comparisons

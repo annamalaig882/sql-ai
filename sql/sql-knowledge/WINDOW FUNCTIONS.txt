@@ -1,0 +1,1156 @@
+WINDOW FUNCTIONS
+ROW_NUMBER
+1. Concept Explanation
+
+What it is: Assigns unique sequential integer to each row within partition.
+
+Why it is needed: To number rows, identify duplicates, pagination.
+
+Where it is used: Pagination, finding first/last records, removing duplicates.
+
+2. Syntax (MSSQL)
+
+sql
+ROW_NUMBER() OVER (
+    [PARTITION BY column1, column2, ...]
+    ORDER BY column3, column4, ...
+) AS RowNum
+3. Simple Example
+
+sql
+-- Simple row numbering
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Salary,
+    ROW_NUMBER() OVER (ORDER BY Salary DESC) AS SalaryRank
+FROM Employees;
+
+-- Row number within department
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Department,
+    Salary,
+    ROW_NUMBER() OVER (
+        PARTITION BY Department 
+        ORDER BY Salary DESC
+    ) AS DeptSalaryRank
+FROM Employees;
+
+-- Pagination with ROW_NUMBER
+WITH NumberedRows AS (
+    SELECT 
+        *,
+        ROW_NUMBER() OVER (ORDER BY OrderDate DESC) AS RowNum
+    FROM Orders
+)
+SELECT * FROM NumberedRows
+WHERE RowNum BETWEEN 11 AND 20;  -- Page 2 (rows 11-20)
+4. Practical / Interview Example
+Problem: Find the top 3 highest paid employees in each department.
+
+Solution:
+
+sql
+WITH RankedEmployees AS (
+    SELECT 
+        EmployeeID,
+        FirstName + ' ' + LastName AS EmployeeName,
+        Department,
+        Salary,
+        ROW_NUMBER() OVER (
+            PARTITION BY Department 
+            ORDER BY Salary DESC
+        ) AS SalaryRankInDept
+    FROM Employees
+    WHERE Active = 1
+)
+SELECT 
+    EmployeeID,
+    EmployeeName,
+    Department,
+    Salary,
+    SalaryRankInDept
+FROM RankedEmployees
+WHERE SalaryRankInDept <= 3
+ORDER BY 
+    Department,
+    SalaryRankInDept;
+5. Important Notes / Common Mistakes
+
+Always requires ORDER BY in OVER clause
+
+PARTITION BY resets row number for each partition
+
+ROW_NUMBER() is always sequential (1, 2, 3, ...)
+
+For ties, arbitrary order (use additional ORDER BY columns)
+
+Common mistake: Expecting consistent ordering without ORDER BY
+
+RANK
+1. Concept Explanation
+
+What it is: Assigns rank with gaps for ties (1, 2, 2, 4, ...).
+
+Why it is needed: To rank items with same values getting same rank.
+
+Where it is used: Competition rankings, scoring systems.
+
+2. Syntax (MSSQL)
+
+sql
+RANK() OVER (
+    [PARTITION BY columns]
+    ORDER BY columns
+) AS RankColumn
+3. Simple Example
+
+sql
+-- Rank employees by salary
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Salary,
+    RANK() OVER (ORDER BY Salary DESC) AS SalaryRank
+FROM Employees;
+
+-- Rank within departments with ties
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Department,
+    Salary,
+    RANK() OVER (
+        PARTITION BY Department 
+        ORDER BY Salary DESC
+    ) AS DeptSalaryRank
+FROM Employees;
+4. Practical / Interview Example
+Problem: Rank products by sales within each category, showing gaps for ties.
+
+Solution:
+
+sql
+WITH ProductSales AS (
+    SELECT 
+        p.ProductID,
+        p.ProductName,
+        p.CategoryID,
+        c.CategoryName,
+        SUM(od.Quantity * od.UnitPrice) AS TotalSales,
+        SUM(od.Quantity) AS TotalUnits
+    FROM Products p
+    JOIN Categories c ON p.CategoryID = c.CategoryID
+    LEFT JOIN OrderDetails od ON p.ProductID = od.ProductID
+    LEFT JOIN Orders o ON od.OrderID = o.OrderID
+        AND o.OrderDate >= DATEADD(YEAR, -1, GETDATE())
+    GROUP BY p.ProductID, p.ProductName, p.CategoryID, c.CategoryName
+),
+RankedProducts AS (
+    SELECT 
+        *,
+        RANK() OVER (
+            PARTITION BY CategoryID 
+            ORDER BY TotalSales DESC
+        ) AS SalesRank,
+        DENSE_RANK() OVER (
+            PARTITION BY CategoryID 
+            ORDER BY TotalSales DESC
+        ) AS SalesDenseRank
+    FROM ProductSales
+)
+SELECT 
+    ProductID,
+    ProductName,
+    CategoryName,
+    TotalSales,
+    TotalUnits,
+    SalesRank,
+    SalesDenseRank,
+    CASE 
+        WHEN SalesRank = 1 THEN 'Category Leader'
+        WHEN SalesRank <= 3 THEN 'Top Performer'
+        WHEN SalesRank <= 10 THEN 'Good Performer'
+        ELSE 'Average'
+    END AS PerformanceCategory
+FROM RankedProducts
+ORDER BY CategoryName, SalesRank;
+5. Important Notes / Common Mistakes
+
+Creates gaps after ties (1, 2, 2, 4, ...)
+
+NULLs are ranked as highest values (first in DESC order)
+
+Use additional ORDER BY columns to break ties deterministically
+
+RANK vs ROW_NUMBER: RANK gives same rank for ties
+
+Common mistake: Expecting sequential numbers like ROW_NUMBER
+
+DENSE_RANK
+1. Concept Explanation
+
+What it is: Assigns rank without gaps for ties (1, 2, 2, 3, ...).
+
+Why it is needed: When you need consecutive ranking after ties.
+
+Where it is used: Ranking without gaps, percentile calculations.
+
+2. Syntax (MSSQL)
+
+sql
+DENSE_RANK() OVER (
+    [PARTITION BY columns]
+    ORDER BY columns
+) AS DenseRankColumn
+3. Simple Example
+
+sql
+-- Dense rank employees by salary
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Salary,
+    RANK() OVER (ORDER BY Salary DESC) AS RankWithGaps,
+    DENSE_RANK() OVER (ORDER BY Salary DESC) AS RankNoGaps
+FROM Employees;
+
+-- Compare all three ranking functions
+SELECT 
+    EmployeeID,
+    Salary,
+    ROW_NUMBER() OVER (ORDER BY Salary DESC) AS RowNum,
+    RANK() OVER (ORDER BY Salary DESC) AS RankWithGaps,
+    DENSE_RANK() OVER (ORDER BY Salary DESC) AS RankNoGaps
+FROM Employees
+ORDER BY Salary DESC;
+4. Practical / Interview Example
+Problem: Assign percentile ranks to students without gaps.
+
+Solution:
+
+sql
+WITH StudentScores AS (
+    SELECT 
+        StudentID,
+        FirstName,
+        LastName,
+        Subject,
+        Score,
+        ROW_NUMBER() OVER (PARTITION BY Subject ORDER BY Score DESC) AS RowNum,
+        COUNT(*) OVER (PARTITION BY Subject) AS TotalStudents
+    FROM ExamScores
+),
+PercentileRanks AS (
+    SELECT 
+        *,
+        -- Calculate percentile (0-100)
+        CAST((RowNum - 1) * 100.0 / (TotalStudents - 1) AS DECIMAL(5,2)) AS PercentileScore,
+        
+        -- Dense rank for grouping
+        DENSE_RANK() OVER (PARTITION BY Subject ORDER BY Score DESC) AS ScoreRank
+    FROM StudentScores
+)
+SELECT 
+    StudentID,
+    FirstName + ' ' + LastName AS StudentName,
+    Subject,
+    Score,
+    PercentileScore,
+    ScoreRank,
+    CASE 
+        WHEN PercentileScore >= 90 THEN 'A+'
+        WHEN PercentileScore >= 80 THEN 'A'
+        WHEN PercentileScore >= 70 THEN 'B+'
+        WHEN PercentileScore >= 60 THEN 'B'
+        WHEN PercentileScore >= 50 THEN 'C+'
+        ELSE 'C'
+    END AS Grade
+FROM PercentileRanks
+ORDER BY Subject, PercentileScore DESC;
+5. Important Notes / Common Mistakes
+
+No gaps after ties (1, 2, 2, 3, ...)
+
+DENSE_RANK ≤ RANK ≤ ROW_NUMBER
+
+Use when you need consecutive ranks
+
+Good for percentile calculations
+
+Common mistake: Using RANK when DENSE_RANK is needed
+
+NTILE
+1. Concept Explanation
+
+What it is: Divides rows into approximately equal groups/buckets.
+
+Why it is needed: For quartiles, deciles, percentile groups, equal distribution.
+
+Where it is used: Customer segmentation, performance quartiles, data sampling.
+
+2. Syntax (MSSQL)
+
+sql
+NTILE(number_of_tiles) OVER (
+    [PARTITION BY columns]
+    ORDER BY columns
+) AS TileNumber
+3. Simple Example
+
+sql
+-- Divide employees into 4 salary quartiles
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Salary,
+    NTILE(4) OVER (ORDER BY Salary) AS SalaryQuartile
+FROM Employees;
+
+-- NTILE within departments
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Department,
+    Salary,
+    NTILE(4) OVER (
+        PARTITION BY Department 
+        ORDER BY Salary
+    ) AS DeptSalaryQuartile
+FROM Employees;
+4. Practical / Interview Example
+Problem: Segment customers into 5 equal groups based on their lifetime value.
+
+Solution:
+
+sql
+WITH CustomerValue AS (
+    SELECT 
+        c.CustomerID,
+        c.CompanyName,
+        c.Country,
+        COUNT(DISTINCT o.OrderID) AS OrderCount,
+        SUM(o.TotalAmount) AS LifetimeValue,
+        MAX(o.OrderDate) AS LastOrderDate,
+        DATEDIFF(DAY, MIN(o.OrderDate), MAX(o.OrderDate)) AS CustomerLifetimeDays
+    FROM Customers c
+    LEFT JOIN Orders o ON c.CustomerID = o.CustomerID
+    GROUP BY c.CustomerID, c.CompanyName, c.Country
+),
+SegmentedCustomers AS (
+    SELECT 
+        *,
+        NTILE(5) OVER (ORDER BY LifetimeValue DESC) AS ValueSegment,
+        CASE 
+            WHEN LifetimeValue IS NULL THEN 'No Purchases'
+            WHEN LifetimeValue = 0 THEN 'No Value'
+            ELSE 'Has Value'
+        END AS ValueStatus
+    FROM CustomerValue
+)
+SELECT 
+    ValueSegment,
+    COUNT(*) AS CustomerCount,
+    AVG(LifetimeValue) AS AvgLifetimeValue,
+    SUM(LifetimeValue) AS TotalSegmentValue,
+    MIN(LifetimeValue) AS MinSegmentValue,
+    MAX(LifetimeValue) AS MaxSegmentValue,
+    AVG(OrderCount) AS AvgOrders,
+    AVG(CustomerLifetimeDays) AS AvgLifetimeDays,
+    
+    -- Segment labels
+    CASE ValueSegment
+        WHEN 1 THEN 'Top 20% - VIP'
+        WHEN 2 THEN '20-40% - High Value'
+        WHEN 3 THEN '40-60% - Medium Value'
+        WHEN 4 THEN '60-80% - Low Value'
+        WHEN 5 THEN 'Bottom 20% - Minimal Value'
+    END AS SegmentDescription
+FROM SegmentedCustomers
+WHERE ValueStatus = 'Has Value'
+GROUP BY ValueSegment
+ORDER BY ValueSegment;
+5. Important Notes / Common Mistakes
+
+Creates approximately equal groups
+
+If rows not divisible by N, first groups get extra rows
+
+NTILE(100) creates percentiles
+
+Use ORDER BY for meaningful grouping
+
+NULLs are treated as lowest values
+
+Common mistake: Expecting exactly equal groups with uneven distributions
+
+LAG
+1. Concept Explanation
+
+What it is: Accesses data from previous row in result set.
+
+Why it is needed: For comparisons with previous period, calculating differences.
+
+Where it is used: Time series analysis, period-over-period comparisons.
+
+2. Syntax (MSSQL)
+
+sql
+LAG(column, offset, default_value) OVER (
+    [PARTITION BY columns]
+    ORDER BY columns
+) AS PreviousValue
+3. Simple Example
+
+sql
+-- Compare current salary with previous employee's salary
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Salary,
+    LAG(Salary) OVER (ORDER BY Salary) AS PreviousSalary,
+    Salary - LAG(Salary) OVER (ORDER BY Salary) AS SalaryIncrease
+FROM Employees;
+
+-- Monthly sales with previous month
+SELECT 
+    YEAR(OrderDate) AS OrderYear,
+    MONTH(OrderDate) AS OrderMonth,
+    SUM(TotalAmount) AS MonthlySales,
+    LAG(SUM(TotalAmount)) OVER (ORDER BY YEAR(OrderDate), MONTH(OrderDate)) AS PreviousMonthSales,
+    SUM(TotalAmount) - LAG(SUM(TotalAmount)) OVER (ORDER BY YEAR(OrderDate), MONTH(OrderDate)) AS MonthOverMonthChange
+FROM Orders
+GROUP BY YEAR(OrderDate), MONTH(OrderDate)
+ORDER BY OrderYear, OrderMonth;
+4. Practical / Interview Example
+Problem: Calculate 7-day moving average of daily sales.
+
+Solution:
+
+sql
+WITH DailySales AS (
+    SELECT 
+        CAST(OrderDate AS DATE) AS SaleDate,
+        SUM(TotalAmount) AS DailySales,
+        COUNT(*) AS OrderCount
+    FROM Orders
+    WHERE OrderDate >= DATEADD(DAY, -30, GETDATE())
+    GROUP BY CAST(OrderDate AS DATE)
+),
+MovingAverages AS (
+    SELECT 
+        SaleDate,
+        DailySales,
+        OrderCount,
+        -- Previous days' sales
+        LAG(DailySales, 1, 0) OVER (ORDER BY SaleDate) AS SalesLag1,
+        LAG(DailySales, 2, 0) OVER (ORDER BY SaleDate) AS SalesLag2,
+        LAG(DailySales, 3, 0) OVER (ORDER BY SaleDate) AS SalesLag3,
+        LAG(DailySales, 4, 0) OVER (ORDER BY SaleDate) AS SalesLag4,
+        LAG(DailySales, 5, 0) OVER (ORDER BY SaleDate) AS SalesLag5,
+        LAG(DailySales, 6, 0) OVER (ORDER BY SaleDate) AS SalesLag6,
+        
+        -- 7-day moving average
+        AVG(DailySales) OVER (
+            ORDER BY SaleDate 
+            ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+        ) AS MovingAvg7Day
+    FROM DailySales
+)
+SELECT 
+    SaleDate,
+    DATENAME(WEEKDAY, SaleDate) AS DayOfWeek,
+    DailySales,
+    OrderCount,
+    MovingAvg7Day,
+    DailySales - MovingAvg7Day AS VsMovingAvg,
+    CASE 
+        WHEN MovingAvg7Day > 0 
+        THEN (DailySales - MovingAvg7Day) * 100.0 / MovingAvg7Day
+        ELSE NULL
+    END AS PercentVsMovingAvg,
+    
+    -- Week over week comparison (same day last week)
+    LAG(DailySales, 7, 0) OVER (ORDER BY SaleDate) AS SameDayLastWeek,
+    DailySales - LAG(DailySales, 7, 0) OVER (ORDER BY SaleDate) AS WoWChange
+FROM MovingAverages
+ORDER BY SaleDate DESC;
+5. Important Notes / Common Mistakes
+
+LAG looks backward, LEAD looks forward
+
+Third parameter is default value for NULL (first row)
+
+Use PARTITION BY for separate sequences
+
+ORDER BY is required
+
+For time series, ensure no gaps in dates
+
+Common mistake: Not handling NULLs from LAG
+
+LEAD
+1. Concept Explanation
+
+What it is: Accesses data from next row in result set.
+
+Why it is needed: For comparisons with next period, forecasting.
+
+Where it is used: Time series analysis, next value comparisons.
+
+2. Syntax (MSSQL)
+
+sql
+LEAD(column, offset, default_value) OVER (
+    [PARTITION BY columns]
+    ORDER BY columns
+) AS NextValue
+3. Simple Example
+
+sql
+-- Compare with next employee's salary
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Salary,
+    LEAD(Salary) OVER (ORDER BY Salary) AS NextSalary,
+    LEAD(Salary) OVER (ORDER BY Salary) - Salary AS SalaryGapToNext
+FROM Employees;
+
+-- Product price changes over time
+WITH PriceChanges AS (
+    SELECT 
+        ProductID,
+        ChangeDate,
+        NewPrice,
+        LEAD(NewPrice) OVER (
+            PARTITION BY ProductID 
+            ORDER BY ChangeDate
+        ) AS NextPrice,
+        LEAD(ChangeDate) OVER (
+            PARTITION BY ProductID 
+            ORDER BY ChangeDate
+        ) AS NextChangeDate
+    FROM PriceHistory
+)
+SELECT 
+    ProductID,
+    ChangeDate,
+    NewPrice,
+    NextPrice,
+    NextChangeDate,
+    NextPrice - NewPrice AS PriceChangeAmount,
+    CASE 
+        WHEN NewPrice > 0 
+        THEN (NextPrice - NewPrice) * 100.0 / NewPrice
+        ELSE NULL
+    END AS PriceChangePercent,
+    DATEDIFF(DAY, ChangeDate, NextChangeDate) AS DaysUntilNextChange
+FROM PriceChanges
+WHERE NextPrice IS NOT NULL;
+4. Practical / Interview Example
+Problem: Forecast next order date for each customer based on historical patterns.
+
+Solution:
+
+sql
+WITH CustomerOrderPatterns AS (
+    SELECT 
+        CustomerID,
+        OrderDate,
+        TotalAmount,
+        -- Next order date for this customer
+        LEAD(OrderDate) OVER (
+            PARTITION BY CustomerID 
+            ORDER BY OrderDate
+        ) AS NextOrderDate,
+        
+        -- Days between orders
+        DATEDIFF(
+            DAY, 
+            OrderDate, 
+            LEAD(OrderDate) OVER (
+                PARTITION BY CustomerID 
+                ORDER BY OrderDate
+            )
+        ) AS DaysToNextOrder,
+        
+        -- Order number for this customer
+        ROW_NUMBER() OVER (
+            PARTITION BY CustomerID 
+            ORDER BY OrderDate
+        ) AS OrderNumber,
+        
+        -- Total orders for this customer
+        COUNT(*) OVER (PARTITION BY CustomerID) AS TotalCustomerOrders
+    FROM Orders
+    WHERE OrderDate >= DATEADD(YEAR, -2, GETDATE())
+),
+OrderStats AS (
+    SELECT 
+        CustomerID,
+        AVG(DaysToNextOrder) AS AvgDaysBetweenOrders,
+        MIN(DaysToNextOrder) AS MinDaysBetweenOrders,
+        MAX(DaysToNextOrder) AS MaxDaysBetweenOrders,
+        COUNT(*) AS OrderPairsCount
+    FROM CustomerOrderPatterns
+    WHERE DaysToNextOrder IS NOT NULL
+    GROUP BY CustomerID
+),
+LatestOrders AS (
+    SELECT 
+        cop.CustomerID,
+        MAX(cop.OrderDate) AS LastOrderDate,
+        MAX(cop.OrderNumber) AS LastOrderNumber,
+        MAX(cop.TotalCustomerOrders) AS TotalOrders
+    FROM CustomerOrderPatterns cop
+    GROUP BY cop.CustomerID
+)
+SELECT 
+    c.CustomerID,
+    c.CompanyName,
+    c.ContactName,
+    lo.LastOrderDate,
+    lo.TotalOrders,
+    os.AvgDaysBetweenOrders,
+    os.MinDaysBetweenOrders,
+    os.MaxDaysBetweenOrders,
+    
+    -- Forecast next order date
+    CASE 
+        WHEN os.AvgDaysBetweenOrders IS NOT NULL 
+            AND lo.TotalOrders >= 3
+        THEN DATEADD(DAY, os.AvgDaysBetweenOrders, lo.LastOrderDate)
+        ELSE NULL
+    END AS ForecastNextOrderDate,
+    
+    -- Days until/since forecast
+    CASE 
+        WHEN DATEADD(DAY, os.AvgDaysBetweenOrders, lo.LastOrderDate) > GETDATE()
+        THEN DATEDIFF(DAY, GETDATE(), DATEADD(DAY, os.AvgDaysBetweenOrders, lo.LastOrderDate))
+        ELSE DATEDIFF(DAY, DATEADD(DAY, os.AvgDaysBetweenOrders, lo.LastOrderDate), GETDATE()) * -1
+    END AS DaysToForecastOrder,
+    
+    -- Customer segment based on ordering pattern
+    CASE 
+        WHEN os.AvgDaysBetweenOrders <= 30 THEN 'Frequent'
+        WHEN os.AvgDaysBetweenOrders <= 90 THEN 'Regular'
+        WHEN os.AvgDaysBetweenOrders <= 180 THEN 'Occasional'
+        ELSE 'Infrequent'
+    END AS OrderFrequencySegment
+    
+FROM Customers c
+JOIN LatestOrders lo ON c.CustomerID = lo.CustomerID
+LEFT JOIN OrderStats os ON c.CustomerID = os.CustomerID
+WHERE lo.LastOrderDate >= DATEADD(YEAR, -1, GETDATE())
+ORDER BY ForecastNextOrderDate;
+5. Important Notes / Common Mistakes
+
+LEAD looks forward, LAG looks backward
+
+Last row gets NULL (use default value parameter)
+
+Use for time series forecasting
+
+Combine with LAG for complete period analysis
+
+Common mistake: Using wrong ORDER BY direction
+
+Running totals
+1. Concept Explanation
+
+What it is: Cumulative sum of values up to current row.
+
+Why it is needed: To track cumulative progress, YTD calculations.
+
+Where it is used: Financial reports, progress tracking, cumulative metrics.
+
+2. Syntax (MSSQL)
+
+sql
+SUM(column) OVER (
+    [PARTITION BY columns]
+    ORDER BY columns
+    [ROWS/RANGE clause]
+) AS RunningTotal
+3. Simple Example
+
+sql
+-- Running total of salaries
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Salary,
+    SUM(Salary) OVER (ORDER BY EmployeeID) AS RunningTotal
+FROM Employees;
+
+-- Running total within department
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Department,
+    Salary,
+    SUM(Salary) OVER (
+        PARTITION BY Department 
+        ORDER BY HireDate
+    ) AS DeptRunningTotal
+FROM Employees;
+
+-- YTD sales
+SELECT 
+    OrderDate,
+    TotalAmount,
+    SUM(TotalAmount) OVER (
+        ORDER BY OrderDate
+        ROWS UNBOUNDED PRECEDING
+    ) AS RunningTotal,
+    SUM(TotalAmount) OVER (
+        PARTITION BY YEAR(OrderDate)
+        ORDER BY OrderDate
+        ROWS UNBOUNDED PRECEDING
+    ) AS YTDSales
+FROM Orders;
+4. Practical / Interview Example
+Problem: Calculate running balances for bank accounts with transactions.
+
+Solution:
+
+sql
+WITH Transactions AS (
+    SELECT 
+        AccountID,
+        TransactionDate,
+        TransactionType,
+        Amount,
+        CASE 
+            WHEN TransactionType = 'Deposit' THEN Amount
+            WHEN TransactionType = 'Withdrawal' THEN -Amount
+            WHEN TransactionType = 'Fee' THEN -Amount
+            ELSE 0
+        END AS SignedAmount
+    FROM AccountTransactions
+    WHERE TransactionDate >= '2023-01-01'
+),
+RunningBalances AS (
+    SELECT 
+        t.AccountID,
+        a.AccountHolderName,
+        t.TransactionDate,
+        t.TransactionType,
+        t.Amount,
+        t.SignedAmount,
+        SUM(t.SignedAmount) OVER (
+            PARTITION BY t.AccountID
+            ORDER BY t.TransactionDate, t.TransactionID
+            ROWS UNBOUNDED PRECEDING
+        ) AS RunningBalance,
+        
+        -- Daily running total
+        SUM(t.SignedAmount) OVER (
+            PARTITION BY t.AccountID, CAST(t.TransactionDate AS DATE)
+            ORDER BY t.TransactionDate
+            ROWS UNBOUNDED PRECEDING
+        ) AS DailyRunningBalance,
+        
+        -- Month-to-date total
+        SUM(CASE 
+            WHEN t.TransactionType IN ('Deposit', 'Withdrawal') 
+            THEN t.SignedAmount 
+            ELSE 0 
+        END) OVER (
+            PARTITION BY t.AccountID, YEAR(t.TransactionDate), MONTH(t.TransactionDate)
+            ORDER BY t.TransactionDate
+            ROWS UNBOUNDED PRECEDING
+        ) AS MTDRunningBalance
+        
+    FROM Transactions t
+    JOIN Accounts a ON t.AccountID = a.AccountID
+)
+SELECT 
+    AccountID,
+    AccountHolderName,
+    TransactionDate,
+    TransactionType,
+    Amount,
+    RunningBalance,
+    DailyRunningBalance,
+    MTDRunningBalance,
+    
+    -- Flag large withdrawals
+    CASE 
+        WHEN TransactionType = 'Withdrawal' 
+            AND Amount > 0.3 * ABS(RunningBalance - SignedAmount)
+        THEN 'Large Withdrawal'
+        ELSE 'Normal'
+    END AS WithdrawalFlag,
+    
+    -- Days since last transaction
+    DATEDIFF(
+        DAY, 
+        LAG(TransactionDate) OVER (
+            PARTITION BY AccountID 
+            ORDER BY TransactionDate
+        ), 
+        TransactionDate
+    ) AS DaysSinceLastTransaction
+    
+FROM RunningBalances
+ORDER BY AccountID, TransactionDate;
+5. Important Notes / Common Mistakes
+
+Use ROWS UNBOUNDED PRECEDING for standard running total
+
+Without ROWS clause, default is RANGE UNBOUNDED PRECEDING
+
+ROWS is faster than RANGE
+
+NULLs are treated as lowest values in ORDER BY
+
+Reset with PARTITION BY for separate sequences
+
+Common mistake: Wrong ORDER BY causing incorrect running totals
+
+Partition vs Order By in Window Functions
+1. Concept Explanation
+
+What it is: Understanding how PARTITION BY and ORDER BY work in window functions.
+
+Why it is needed: To control window frame and calculation scope.
+
+Where it is used: All window functions for precise control.
+
+2. Key Differences
+
+PARTITION BY	ORDER BY
+Divides rows into groups	Orders rows within partition
+Resets calculations for each partition	Defines order for calculations
+Optional (default is single partition)	Required for some functions
+Similar to GROUP BY but doesn't reduce rows	Determines row order for ROWS/RANGE
+3. Simple Example
+
+sql
+-- Different combinations
+SELECT 
+    EmployeeID,
+    Department,
+    Salary,
+    
+    -- No partition, ordered by salary
+    ROW_NUMBER() OVER (ORDER BY Salary DESC) AS OverallRank,
+    
+    -- Partition by department, ordered by salary
+    ROW_NUMBER() OVER (
+        PARTITION BY Department 
+        ORDER BY Salary DESC
+    ) AS DeptRank,
+    
+    -- Running totals
+    SUM(Salary) OVER (ORDER BY EmployeeID) AS RunningTotalAll,
+    SUM(Salary) OVER (
+        PARTITION BY Department 
+        ORDER BY HireDate
+    ) AS RunningTotalDept
+FROM Employees;
+4. Practical / Interview Example
+Problem: Analyze sales performance with multiple window function variations.
+
+Solution:
+
+sql
+WITH SalesData AS (
+    SELECT 
+        s.SalespersonID,
+        sp.FirstName + ' ' + sp.LastName AS SalespersonName,
+        sp.Region,
+        s.SaleDate,
+        s.ProductCategory,
+        s.SaleAmount
+    FROM Sales s
+    JOIN Salespeople sp ON s.SalespersonID = sp.SalespersonID
+    WHERE s.SaleDate >= DATEADD(YEAR, -1, GETDATE())
+),
+WindowCalculations AS (
+    SELECT 
+        *,
+        -- Overall ranking
+        ROW_NUMBER() OVER (ORDER BY SaleAmount DESC) AS OverallSaleRank,
+        RANK() OVER (ORDER BY SaleAmount DESC) AS OverallSaleRankWithTies,
+        
+        -- Ranking within region
+        ROW_NUMBER() OVER (
+            PARTITION BY Region 
+            ORDER BY SaleAmount DESC
+        ) AS RegionSaleRank,
+        
+        -- Ranking within region and category
+        ROW_NUMBER() OVER (
+            PARTITION BY Region, ProductCategory 
+            ORDER BY SaleAmount DESC
+        ) AS RegionCategoryRank,
+        
+        -- Running totals
+        SUM(SaleAmount) OVER (
+            PARTITION BY SalespersonID 
+            ORDER BY SaleDate
+            ROWS UNBOUNDED PRECEDING
+        ) AS PersonalRunningTotal,
+        
+        -- Monthly running total within region
+        SUM(SaleAmount) OVER (
+            PARTITION BY Region, YEAR(SaleDate), MONTH(SaleDate)
+            ORDER BY SaleDate
+            ROWS UNBOUNDED PRECEDING
+        ) AS RegionMonthlyRunningTotal,
+        
+        -- Compare to previous sale (same salesperson)
+        LAG(SaleAmount) OVER (
+            PARTITION BY SalespersonID 
+            ORDER BY SaleDate
+        ) AS PreviousSaleAmount,
+        
+        -- Percentage of region total
+        SaleAmount * 100.0 / SUM(SaleAmount) OVER (PARTITION BY Region) AS PercentOfRegionTotal,
+        
+        -- Average sale in region
+        AVG(SaleAmount) OVER (PARTITION BY Region) AS RegionAvgSale
+        
+    FROM SalesData
+)
+SELECT 
+    SalespersonID,
+    SalespersonName,
+    Region,
+    SaleDate,
+    ProductCategory,
+    SaleAmount,
+    OverallSaleRank,
+    RegionSaleRank,
+    RegionCategoryRank,
+    PersonalRunningTotal,
+    RegionMonthlyRunningTotal,
+    PreviousSaleAmount,
+    SaleAmount - PreviousSaleAmount AS VsPreviousSale,
+    PercentOfRegionTotal,
+    RegionAvgSale,
+    SaleAmount - RegionAvgSale AS VsRegionAvg,
+    
+    -- Performance category
+    CASE 
+        WHEN SaleAmount > RegionAvgSale * 1.5 THEN 'Outstanding'
+        WHEN SaleAmount > RegionAvgSale * 1.2 THEN 'Excellent'
+        WHEN SaleAmount > RegionAvgSale THEN 'Good'
+        WHEN SaleAmount > RegionAvgSale * 0.8 THEN 'Average'
+        ELSE 'Below Average'
+    END AS PerformanceCategory
+    
+FROM WindowCalculations
+ORDER BY SaleDate DESC, OverallSaleRank;
+5. Important Notes / Common Mistakes
+
+PARTITION BY creates independent windows
+
+ORDER BY determines row order within window
+
+Without PARTITION BY: entire table is one partition
+
+Without ORDER BY: some functions fail, others use arbitrary order
+
+ROWS/RANGE clauses depend on ORDER BY
+
+Common mistake: Forgetting ORDER BY in running totals
+
+sql
+-- WRONG: No ORDER BY in running total
+SUM(Salary) OVER (PARTITION BY Department)  -- Returns total, not running total
+
+-- CORRECT: With ORDER BY
+SUM(Salary) OVER (
+    PARTITION BY Department 
+    ORDER BY HireDate
+    ROWS UNBOUNDED PRECEDING
+)  -- Returns running total
+CASE STATEMENT
+CASE WHEN
+1. Concept Explanation
+
+What it is: Conditional logic in SQL (like IF-THEN-ELSE).
+
+Why it is needed: To implement business logic, categorize data, handle conditions.
+
+Where it is used: Data categorization, calculated columns, conditional aggregations.
+
+2. Syntax (MSSQL)
+
+sql
+-- Simple CASE (compares a single expression)
+CASE expression
+    WHEN value1 THEN result1
+    WHEN value2 THEN result2
+    ...
+    ELSE default_result
+END
+
+-- Searched CASE (evaluates multiple conditions)
+CASE
+    WHEN condition1 THEN result1
+    WHEN condition2 THEN result2
+    ...
+    ELSE default_result
+END
+3. Simple Example
+
+sql
+-- Simple CASE
+SELECT 
+    EmployeeID,
+    FirstName,
+    Department,
+    CASE Department
+        WHEN 'Sales' THEN 'Revenue Generating'
+        WHEN 'IT' THEN 'Technical'
+        WHEN 'HR' THEN 'Support'
+        ELSE 'Other'
+    END AS DepartmentType
+FROM Employees;
+
+-- Searched CASE
+SELECT 
+    EmployeeID,
+    FirstName,
+    Salary,
+    CASE
+        WHEN Salary >= 80000 THEN 'Executive'
+        WHEN Salary >= 60000 THEN 'Senior'
+        WHEN Salary >= 40000 THEN 'Mid-Level'
+        ELSE 'Junior'
+    END AS SalaryGrade
+FROM Employees;
+
+-- CASE in ORDER BY
+SELECT *
+FROM Products
+ORDER BY 
+    CASE 
+        WHEN StockQuantity <= ReorderLevel THEN 1
+        WHEN StockQuantity <= ReorderLevel * 2 THEN 2
+        ELSE 3
+    END,
+    ProductName;
+4. Practical / Interview Example
+Problem: Categorize customers based on multiple criteria for targeted marketing.
+
+Solution:
+
+sql
+WITH CustomerMetrics AS (
+    SELECT 
+        c.CustomerID,
+        c.CompanyName,
+        c.Country,
+        c.RegistrationDate,
+        COUNT(DISTINCT o.OrderID) AS OrderCount,
+        SUM(o.TotalAmount) AS LifetimeValue,
+        MAX(o.OrderDate) AS LastOrderDate,
+        DATEDIFF(DAY, MAX(o.OrderDate), GETDATE()) AS DaysSinceLastOrder,
+        AVG(o.TotalAmount) AS AvgOrderValue
+    FROM Customers c
+    LEFT JOIN Orders o ON c.CustomerID = o.CustomerID
+    GROUP BY c.CustomerID, c.CompanyName, c.Country, c.RegistrationDate
+)
+SELECT 
+    CustomerID,
+    CompanyName,
+    Country,
+    OrderCount,
+    LifetimeValue,
+    LastOrderDate,
+    DaysSinceLastOrder,
+    AvgOrderValue,
+    
+    -- Multi-criteria segmentation
+    CASE 
+        -- VIP Customers
+        WHEN LifetimeValue > 10000 
+            AND OrderCount >= 5 
+            AND DaysSinceLastOrder <= 30
+            THEN 'VIP - High Value Active'
+        
+        -- High Value but inactive
+        WHEN LifetimeValue > 10000 
+            AND DaysSinceLastOrder > 90
+            THEN 'VIP - High Value Inactive'
+        
+        -- Regular active customers
+        WHEN LifetimeValue BETWEEN 1000 AND 10000
+            AND OrderCount >= 3
+            AND DaysSinceLastOrder <= 60
+            THEN 'Regular - Active'
+        
+        -- New customers
+        WHEN OrderCount = 1 
+            AND DATEDIFF(DAY, RegistrationDate, GETDATE()) <= 90
+            THEN 'New Customer'
+        
+        -- One-time buyers
+        WHEN OrderCount = 1 
+            AND DATEDIFF(DAY, RegistrationDate, GETDATE()) > 90
+            THEN 'One-Time Buyer'
+        
+        -- Inactive customers
+        WHEN DaysSinceLastOrder > 180 
+            AND LifetimeValue > 0
+            THEN 'Inactive - Potential Churn'
+        
+        -- No purchases
+        WHEN LifetimeValue IS NULL OR LifetimeValue = 0
+            THEN 'Prospect - No Purchases'
+        
+        ELSE 'Other'
+    END AS CustomerSegment,
+    
+    -- Priority score for outreach
+    CASE 
+        WHEN LifetimeValue > 10000 THEN 100
+        WHEN LifetimeValue > 5000 THEN 80
+        WHEN LifetimeValue > 1000 THEN 60
+        WHEN LifetimeValue > 0 THEN 40
+        ELSE 0
+    END 
+    + 
+    CASE 
+        WHEN DaysSinceLastOrder <= 30 THEN 50
+        WHEN DaysSinceLastOrder <= 60 THEN 40
+        WHEN DaysSinceLastOrder <= 90 THEN 30
+        WHEN DaysSinceLastOrder <= 180 THEN 20
+        ELSE 0
+    END AS OutreachPriorityScore
+    
+FROM CustomerMetrics
+ORDER BY OutreachPriorityScore DESC, LifetimeValue DESC;
+5. Important Notes / Common Mistakes
+
+CASE returns single data type (all results must be compatible)
+
+Stops at first matching WHEN (order matters!)
+
+ELSE is optional (NULL if omitted and no match)
+
+Can be used in SELECT, WHERE, ORDER BY, GROUP BY, HAVING
+
+Use searched CASE for complex conditions
+
+Common mistake: Forgetting ELSE and getting unexpected NULLs
+

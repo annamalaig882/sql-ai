@@ -1,0 +1,14 @@
+langchain
+langchain-community
+langchain-ollama
+langchain-postgres
+psycopg2-binary
+pgvector
+sqlalchemy
+fastapi
+uvicorn
+python-multipart
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt==4.0.1
+openai

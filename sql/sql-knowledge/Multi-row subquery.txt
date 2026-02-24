@@ -1,0 +1,186 @@
+Multi-row subquery
+1. Concept Explanation
+
+What it is: Subquery that returns multiple rows (single or multiple columns).
+
+Why it is needed: To compare against a list of values or check existence in a set.
+
+Where it is used: IN, ANY, ALL operators, EXISTS checks.
+
+2. Syntax (MSSQL)
+
+sql
+-- With IN operator
+SELECT columns
+FROM table
+WHERE column IN (SELECT column FROM table WHERE condition);
+
+-- With ANY/ALL operators
+WHERE column operator ANY (SELECT column FROM table);
+WHERE column operator ALL (SELECT column FROM table);
+3. Simple Example
+
+sql
+-- Employees in specific departments
+SELECT EmployeeName, Department
+FROM Employees
+WHERE DeptID IN (
+    SELECT DeptID FROM Departments 
+    WHERE Location = 'New York'
+);
+
+-- Products with price > any product in category 1
+SELECT ProductName, Price, CategoryID
+FROM Products
+WHERE Price > ANY (
+    SELECT Price FROM Products WHERE CategoryID = 1
+);
+
+-- Products more expensive than all products in category 2
+SELECT ProductName, Price, CategoryID
+FROM Products
+WHERE Price > ALL (
+    SELECT Price FROM Products WHERE CategoryID = 2
+);
+4. Practical / Interview Example
+Problem: Find customers who have ordered products from all categories.
+
+Solution:
+
+sql
+-- Using GROUP BY and HAVING
+SELECT 
+    c.CustomerID,
+    c.CompanyName,
+    COUNT(DISTINCT p.CategoryID) AS CategoriesOrdered
+FROM Customers c
+JOIN Orders o ON c.CustomerID = o.CustomerID
+JOIN OrderDetails od ON o.OrderID = od.OrderID
+JOIN Products p ON od.ProductID = p.ProductID
+GROUP BY c.CustomerID, c.CompanyName
+HAVING COUNT(DISTINCT p.CategoryID) = (
+    SELECT COUNT(DISTINCT CategoryID) FROM Products
+);
+
+-- Alternative using NOT EXISTS
+SELECT 
+    c.CustomerID,
+    c.CompanyName
+FROM Customers c
+WHERE NOT EXISTS (
+    -- Find categories this customer hasn't ordered
+    SELECT CategoryID 
+    FROM Products p
+    WHERE NOT EXISTS (
+        SELECT 1 
+        FROM Orders o
+        JOIN OrderDetails od ON o.OrderID = od.OrderID
+        WHERE o.CustomerID = c.CustomerID
+        AND od.ProductID = p.ProductID
+    )
+);
+5. Important Notes / Common Mistakes
+
+IN is most common multi-row operator
+
+ANY/SOME return TRUE if any comparison is TRUE
+
+ALL returns TRUE only if ALL comparisons are TRUE
+
+NOT IN with NULLs in subquery returns no rows (use NOT EXISTS)
+
+EXISTS is often faster than IN for large datasets
+
+Common mistake: Using = instead of IN for multi-row subqueries
+
+Correlated subquery
+1. Concept Explanation
+
+What it is: Subquery that references columns from outer query, executed for each row.
+
+Why it is needed: To perform row-by-row comparisons or calculations.
+
+Where it is used: Finding duplicates, hierarchical data, row comparisons.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT columns
+FROM outer_table o
+WHERE operator (SELECT column 
+                FROM inner_table i 
+                WHERE i.column = o.column); -- Correlation here
+3. Simple Example
+
+sql
+-- Employees earning more than department average
+SELECT e1.EmployeeID, e1.FirstName, e1.Salary, e1.Department
+FROM Employees e1
+WHERE Salary > (
+    SELECT AVG(Salary)
+    FROM Employees e2
+    WHERE e2.Department = e1.Department  -- Correlated
+);
+
+-- Latest order for each customer
+SELECT o1.OrderID, o1.CustomerID, o1.OrderDate, o1.TotalAmount
+FROM Orders o1
+WHERE o1.OrderDate = (
+    SELECT MAX(OrderDate)
+    FROM Orders o2
+    WHERE o2.CustomerID = o1.CustomerID  -- Correlated
+);
+4. Practical / Interview Example
+Problem: Find employees who have changed departments more than once.
+
+Solution:
+
+sql
+SELECT 
+    e.EmployeeID,
+    e.FirstName + ' ' + e.LastName AS EmployeeName,
+    e.CurrentDepartment,
+    (SELECT COUNT(DISTINCT Department) 
+     FROM EmployeeHistory h 
+     WHERE h.EmployeeID = e.EmployeeID) AS DepartmentsWorkedIn,
+    
+    (SELECT MIN(StartDate) 
+     FROM EmployeeHistory h 
+     WHERE h.EmployeeID = e.EmployeeID) AS FirstDepartmentDate,
+    
+    (SELECT MAX(StartDate) 
+     FROM EmployeeHistory h 
+     WHERE h.EmployeeID = e.EmployeeID) AS LastDepartmentChangeDate
+FROM Employees e
+WHERE (
+    SELECT COUNT(DISTINCT Department) 
+    FROM EmployeeHistory h 
+    WHERE h.EmployeeID = e.EmployeeID
+) > 1
+ORDER BY DepartmentsWorkedIn DESC;
+5. Important Notes / Common Mistakes
+
+Executes once for each row in outer query (can be slow)
+
+Use EXISTS instead of IN for correlated subqueries when possible
+
+Can reference multiple levels of outer queries
+
+Often can be rewritten as JOIN for better performance
+
+Common mistake: Unintentionally creating correlated subquery
+
+sql
+-- Slow correlated subquery
+SELECT e1.*,
+    (SELECT AVG(Salary) FROM Employees e2 WHERE e2.DeptID = e1.DeptID) AS DeptAvg
+FROM Employees e1;
+
+-- Faster with JOIN
+SELECT e1.*, d.AvgSalary AS DeptAvg
+FROM Employees e1
+JOIN (
+    SELECT DeptID, AVG(Salary) AS AvgSalary
+    FROM Employees
+    GROUP BY DeptID
+) d ON e1.DeptID = d.DeptID;

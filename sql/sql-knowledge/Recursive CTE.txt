@@ -1,0 +1,323 @@
+Recursive CTE
+1. Concept Explanation
+
+What it is: CTE that references itself to process hierarchical or sequential data.
+
+Why it is needed: To query tree structures, generate sequences, or process hierarchies.
+
+Where it is used: Organization charts, bill of materials, category hierarchies.
+
+2. Syntax (MSSQL)
+
+sql
+WITH RecursiveCTE (Columns) AS (
+    -- Anchor member (initial query)
+    SELECT columns
+    FROM table
+    WHERE condition  -- Starting point
+    
+    UNION ALL
+    
+    -- Recursive member (references CTE)
+    SELECT columns
+    FROM table
+    INNER JOIN RecursiveCTE ON join_condition
+    WHERE condition  -- Termination condition
+)
+SELECT * FROM RecursiveCTE
+OPTION (MAXRECURSION number);  -- Optional recursion limit
+3. Simple Example
+
+sql
+-- Generate numbers 1 to 10
+WITH Numbers AS (
+    -- Anchor
+    SELECT 1 AS Number
+    
+    UNION ALL
+    
+    -- Recursive
+    SELECT Number + 1
+    FROM Numbers
+    WHERE Number < 10
+)
+SELECT * FROM Numbers;
+
+-- Employee hierarchy (managers and reports)
+WITH EmployeeHierarchy AS (
+    -- Anchor: Top-level managers (no manager)
+    SELECT 
+        EmployeeID,
+        FirstName,
+        LastName,
+        ManagerID,
+        1 AS Level,
+        CAST(FirstName + ' ' + LastName AS VARCHAR(500)) AS HierarchyPath
+    FROM Employees
+    WHERE ManagerID IS NULL
+    
+    UNION ALL
+    
+    -- Recursive: Employees reporting to managers in CTE
+    SELECT 
+        e.EmployeeID,
+        e.FirstName,
+        e.LastName,
+        e.ManagerID,
+        eh.Level + 1 AS Level,
+        CAST(eh.HierarchyPath + ' -> ' + e.FirstName + ' ' + e.LastName AS VARCHAR(500))
+    FROM Employees e
+    INNER JOIN EmployeeHierarchy eh ON e.ManagerID = eh.EmployeeID
+)
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    ManagerID,
+    Level,
+    HierarchyPath
+FROM EmployeeHierarchy
+ORDER BY Level, LastName;
+4. Practical / Interview Example
+Problem: Calculate factorial of numbers and Fibonacci sequence using recursive CTE.
+
+Solution:
+
+sql
+-- Factorial calculation
+WITH FactorialCTE AS (
+    SELECT 
+        1 AS Number,
+        1 AS Factorial
+    
+    UNION ALL
+    
+    SELECT 
+        Number + 1,
+        Factorial * (Number + 1)
+    FROM FactorialCTE
+    WHERE Number < 10
+)
+SELECT * FROM FactorialCTE;
+
+-- Fibonacci sequence
+WITH FibonacciCTE AS (
+    SELECT 
+        1 AS Position,
+        0 AS FibonacciNumber,
+        1 AS NextNumber
+    
+    UNION ALL
+    
+    SELECT 
+        Position + 1,
+        NextNumber,
+        FibonacciNumber + NextNumber
+    FROM FibonacciCTE
+    WHERE Position < 20
+)
+SELECT 
+    Position,
+    FibonacciNumber
+FROM FibonacciCTE;
+
+-- Product category hierarchy with full path
+WITH CategoryHierarchy AS (
+    -- Anchor: Root categories (no parent)
+    SELECT 
+        CategoryID,
+        CategoryName,
+        ParentCategoryID,
+        1 AS Level,
+        CAST(CategoryName AS VARCHAR(1000)) AS FullPath
+    FROM ProductCategories
+    WHERE ParentCategoryID IS NULL
+    
+    UNION ALL
+    
+    -- Recursive: Child categories
+    SELECT 
+        c.CategoryID,
+        c.CategoryName,
+        c.ParentCategoryID,
+        ch.Level + 1,
+        CAST(ch.FullPath + ' > ' + c.CategoryName AS VARCHAR(1000))
+    FROM ProductCategories c
+    INNER JOIN CategoryHierarchy ch ON c.ParentCategoryID = ch.CategoryID
+)
+SELECT 
+    CategoryID,
+    CategoryName,
+    ParentCategoryID,
+    Level,
+    FullPath,
+    REPLICATE('  ', Level - 1) + CategoryName AS IndentedName
+FROM CategoryHierarchy
+ORDER BY FullPath;
+5. Important Notes / Common Mistakes
+
+Must have UNION ALL (not UNION)
+
+Anchor and recursive members must have same columns
+
+Maximum recursion default is 100
+
+Use OPTION (MAXRECURSION 0) for unlimited (careful!)
+
+Watch for infinite recursion cycles
+
+Common mistake: Missing termination condition
+
+sql
+-- INFINITE RECURSION (missing WHERE)
+WITH BadCTE AS (
+    SELECT 1 AS Num
+    UNION ALL
+    SELECT Num + 1 FROM BadCTE  -- No termination!
+)
+SELECT * FROM BadCTE;  -- Will error: maximum recursion exceeded
+When and why to use CTE
+1. Concept Explanation
+
+What it is: Understanding appropriate use cases for CTEs.
+
+Why it is needed: To choose right tool for query requirements.
+
+Where it is used: Complex queries, recursion, readability improvement.
+
+2. When to Use CTE
+
+Use Case	Why CTE is Good	Alternative
+Recursive queries	Only way in SQL Server	While loop in code
+Query readability	Breaks complex logic	Nested subqueries
+Multiple references	Can reference same CTE multiple times	Duplicate subqueries
+Window functions	Clean syntax with CTE	Complex derived tables
+Data modification	UPDATE/DELETE with JOIN-like logic	Multiple statements
+3. Simple Example
+
+sql
+-- GOOD USE: Improving readability of complex query
+WITH 
+    CustomerOrders AS (
+        SELECT 
+            CustomerID,
+            COUNT(*) AS OrderCount,
+            SUM(TotalAmount) AS TotalSpent,
+            MAX(OrderDate) AS LastOrderDate
+        FROM Orders
+        GROUP BY CustomerID
+    ),
+    CustomerCategories AS (
+        SELECT 
+            CustomerID,
+            CASE 
+                WHEN TotalSpent > 10000 THEN 'VIP'
+                WHEN TotalSpent > 5000 THEN 'Gold'
+                WHEN TotalSpent > 1000 THEN 'Silver'
+                ELSE 'Bronze'
+            END AS CustomerCategory
+        FROM CustomerOrders
+    )
+SELECT 
+    c.CustomerID,
+    c.CompanyName,
+    co.OrderCount,
+    co.TotalSpent,
+    co.LastOrderDate,
+    cc.CustomerCategory,
+    DATEDIFF(DAY, co.LastOrderDate, GETDATE()) AS DaysSinceLastOrder
+FROM Customers c
+JOIN CustomerOrders co ON c.CustomerID = co.CustomerID
+JOIN CustomerCategories cc ON c.CustomerID = cc.CustomerID
+ORDER BY co.TotalSpent DESC;
+4. Practical / Interview Example
+Problem: Analyze employee performance with multiple metrics and rankings.
+
+Solution:
+
+sql
+WITH 
+    SalesPerformance AS (
+        SELECT 
+            e.EmployeeID,
+            e.FirstName + ' ' + e.LastName AS EmployeeName,
+            e.Department,
+            COUNT(DISTINCT o.OrderID) AS OrderCount,
+            SUM(o.TotalAmount) AS TotalSales,
+            COUNT(DISTINCT o.CustomerID) AS UniqueCustomers,
+            AVG(o.TotalAmount) AS AvgOrderValue
+        FROM Employees e
+        LEFT JOIN Orders o ON e.EmployeeID = o.EmployeeID
+            AND o.OrderDate >= DATEADD(MONTH, -3, GETDATE())
+        GROUP BY e.EmployeeID, e.FirstName, e.LastName, e.Department
+    ),
+    PerformanceRankings AS (
+        SELECT 
+            *,
+            RANK() OVER (ORDER BY TotalSales DESC) AS SalesRank,
+            RANK() OVER (PARTITION BY Department ORDER BY TotalSales DESC) AS DeptSalesRank,
+            NTILE(4) OVER (ORDER BY TotalSales DESC) AS SalesQuartile,
+            CASE 
+                WHEN TotalSales > 50000 THEN 'Top Performer'
+                WHEN TotalSales > 20000 THEN 'Good Performer'
+                WHEN TotalSales > 0 THEN 'Average Performer'
+                ELSE 'No Sales'
+            END AS PerformanceCategory
+        FROM SalesPerformance
+    ),
+    DepartmentSummary AS (
+        SELECT 
+            Department,
+            COUNT(*) AS EmployeeCount,
+            AVG(TotalSales) AS AvgDepartmentSales,
+            SUM(TotalSales) AS TotalDepartmentSales
+        FROM PerformanceRankings
+        GROUP BY Department
+    )
+SELECT 
+    pr.EmployeeID,
+    pr.EmployeeName,
+    pr.Department,
+    pr.OrderCount,
+    pr.TotalSales,
+    pr.UniqueCustomers,
+    pr.AvgOrderValue,
+    pr.SalesRank,
+    pr.DeptSalesRank,
+    pr.SalesQuartile,
+    pr.PerformanceCategory,
+    ds.AvgDepartmentSales,
+    pr.TotalSales - ds.AvgDepartmentSales AS VsDepartmentAvg,
+    CASE 
+        WHEN ds.AvgDepartmentSales > 0 
+        THEN (pr.TotalSales - ds.AvgDepartmentSales) * 100.0 / ds.AvgDepartmentSales
+        ELSE NULL
+    END AS PercentVsDepartmentAvg
+FROM PerformanceRankings pr
+JOIN DepartmentSummary ds ON pr.Department = ds.Department
+ORDER BY pr.SalesRank;
+5. Important Notes / Common Mistakes
+
+Use CTE when:
+
+Need recursion
+
+Improving readability of complex queries
+
+Referencing same subquery multiple times
+
+Using window functions with complex logic
+
+Don't use CTE when:
+
+Simple query (adds unnecessary complexity)
+
+Need to reuse result in multiple queries (use temp table)
+
+Performance is critical (test against alternatives)
+
+CTEs are not stored objects (recreated each execution)
+
+Consider materialized CTE in SQL Server 2019+
+
+Common mistake: Overusing CTEs for simple queries

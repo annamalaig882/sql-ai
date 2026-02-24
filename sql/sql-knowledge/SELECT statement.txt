@@ -1,0 +1,119 @@
+SELECT statement
+1. Concept Explanation
+
+What it is: The SELECT statement retrieves data from one or more tables. It's the most frequently used SQL command.
+
+Why it is needed: To query, view, and analyze data stored in databases.
+
+Where it is used: In all data retrieval operations - reports, data exports, application data display, etc.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT column1, column2, ...
+FROM table_name
+[WHERE condition]
+[ORDER BY column]
+[GROUP BY column];
+3. Simple Example
+
+sql
+-- Retrieve all columns from Employees table
+SELECT * FROM Employees;
+
+-- Retrieve specific columns
+SELECT FirstName, LastName, Salary
+FROM Employees;
+
+-- Retrieve with calculated column
+SELECT FirstName, LastName, Salary, Salary * 1.1 AS 'New Salary'
+FROM Employees;
+4. Practical / Interview Example
+Problem: Get employee details with their annual salary (monthly salary × 12) and a bonus of 15% for employees earning less than 5000.
+
+Solution:
+
+sql
+SELECT 
+    EmployeeID,
+    FirstName + ' ' + LastName AS FullName,
+    Salary AS MonthlySalary,
+    Salary * 12 AS AnnualSalary,
+    CASE 
+        WHEN Salary < 5000 THEN Salary * 12 * 0.15
+        ELSE Salary * 12 * 0.10
+    END AS Bonus
+FROM Employees
+ORDER BY AnnualSalary DESC;
+5. Important Notes / Common Mistakes
+
+SELECT * retrieves all columns but is inefficient for large tables
+
+Use column names explicitly for better performance and clarity
+
+Aliases (AS) make output more readable
+
+Calculations in SELECT don't modify stored data
+
+Common mistake: Forgetting table name in FROM clause
+
+WHERE clause
+1. Concept Explanation
+
+What it is: The WHERE clause filters records based on specified conditions.
+
+Why it is needed: To retrieve only the data that meets specific criteria from large datasets.
+
+Where it is used: Filtering search results, data validation, reporting with conditions.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT columns
+FROM table
+WHERE condition;
+-- Conditions use: =, <>, >, <, >=, <=, AND, OR, NOT, LIKE, IN, BETWEEN
+3. Simple Example
+
+sql
+-- Simple equality filter
+SELECT * FROM Employees
+WHERE DeptID = 3;
+
+-- Multiple conditions
+SELECT * FROM Employees
+WHERE Salary > 5000 AND HireDate > '2022-01-01';
+
+-- Using NOT
+SELECT * FROM Products
+WHERE NOT CategoryID = 5;
+4. Practical / Interview Example
+Problem: Find all employees in department 2 or 3 who were hired after 2020 and earn between 4000 and 8000, excluding those with last name 'Smith'.
+
+Solution:
+
+sql
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Salary,
+    HireDate,
+    DeptID
+FROM Employees
+WHERE DeptID IN (2, 3)
+    AND HireDate > '2020-12-31'
+    AND Salary BETWEEN 4000 AND 8000
+    AND LastName <> 'Smith'
+ORDER BY Salary DESC;
+5. Important Notes / Common Mistakes
+
+MSSQL is case-insensitive by default for comparisons
+
+Date format: Use 'YYYY-MM-DD' or 'YYYYMMDD'
+
+NULL comparisons need IS NULL or IS NOT NULL, not = NULL
+
+String comparisons with LIKE are slower than =
+
+Common mistake: Using AND when OR is needed in complex conditions

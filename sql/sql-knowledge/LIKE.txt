@@ -1,0 +1,70 @@
+LIKE
+1. Concept Explanation
+
+What it is: Operator for pattern matching with wildcards.
+
+Why it is needed: To search for partial string matches.
+
+Where it is used: Search functionality, data validation, pattern matching.
+
+2. Syntax (MSSQL)
+
+sql
+WHERE column LIKE 'pattern'
+-- Wildcards:
+-- % : Any string of zero or more characters
+-- _ : Any single character
+-- [] : Any single character within the brackets
+-- [^] : Any single character not within brackets
+3. Simple Example
+
+sql
+-- Starts with 'A'
+SELECT * FROM Customers WHERE LastName LIKE 'A%';
+
+-- Ends with 'son'
+SELECT * FROM Customers WHERE LastName LIKE '%son';
+
+-- Contains 'tech'
+SELECT * FROM Products WHERE ProductName LIKE '%tech%';
+
+-- Second character is 'a'
+SELECT * FROM Customers WHERE LastName LIKE '_a%';
+
+-- Specific characters
+SELECT * FROM Products WHERE ProductCode LIKE '[ABC]%'; -- Starts with A, B, or C
+
+-- Excluding characters
+SELECT * FROM Products WHERE ProductCode LIKE '[^XYZ]%'; -- Doesn't start with X, Y, or Z
+4. Practical / Interview Example
+Problem: Find email addresses that are invalid (don't contain @ symbol or have incorrect format).
+
+Solution:
+
+sql
+SELECT 
+    CustomerID,
+    Email,
+    CASE 
+        WHEN Email NOT LIKE '%_@__%.__%' THEN 'Invalid Format'
+        WHEN Email LIKE '%@%.%' AND Email NOT LIKE '%@%@%' THEN 'Valid'
+        ELSE 'Invalid'
+    END AS EmailStatus
+FROM Customers
+WHERE Email NOT LIKE '%_@__%.__%'  -- Basic email pattern
+    OR Email LIKE '% %'            -- Contains space
+    OR Email LIKE '%@%@%'          -- Multiple @ symbols
+ORDER BY EmailStatus;
+5. Important Notes / Common Mistakes
+
+LIKE is case-insensitive by default in MSSQL
+
+Use COLLATE for case-sensitive searches
+
+% matches zero or more characters
+
+_ matches exactly one character
+
+Escape special characters with [] or ESCAPE clause
+
+Common mistake: LIKE '%' returns all rows (including NULLs)

@@ -1,0 +1,20 @@
+EXISTS/NOT EXISTS checks
+
+Scalar calculations
+
+When you need to check against aggregated values
+
+Avoid correlated subqueries in SELECT clause (can cause performance issues)
+
+Use derived tables (subqueries in FROM) for complex intermediate results
+
+Common mistake: Using IN with subquery returning many NULLs
+
+sql
+-- Problem: NOT IN returns no rows if subquery has NULLs
+SELECT * FROM Table1 
+WHERE ID NOT IN (SELECT ID FROM Table2 WHERE ID IS NULL); -- Returns nothing!
+
+-- Solution: Use NOT EXISTS instead
+SELECT * FROM Table1 t1
+WHERE NOT EXISTS (SELECT 1 FROM Table2 t2 WHERE t2.ID = t1.ID);

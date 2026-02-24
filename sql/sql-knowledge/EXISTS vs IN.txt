@@ -1,0 +1,284 @@
+EXISTS vs IN
+1. Concept Explanation
+
+What it is: Two ways to check for existence of rows in subquery.
+
+Why it is needed: Different performance characteristics and NULL handling.
+
+Where it is used: Checking if related records exist, filtering based on subquery results.
+
+2. Comparison
+
+Aspect	EXISTS	IN
+Performance	Usually faster, stops at first match	Must process all results
+NULL handling	Handles NULLs correctly	NOT IN fails with NULLs
+Result set	Returns TRUE/FALSE	Returns matching values
+Use with correlated	Works well	Can be used but slower
+Readability	Clear for existence checks	Clear for value lists
+3. Simple Example
+
+sql
+-- Customers who have placed orders (using EXISTS)
+SELECT c.CustomerID, c.CompanyName
+FROM Customers c
+WHERE EXISTS (
+    SELECT 1 
+    FROM Orders o 
+    WHERE o.CustomerID = c.CustomerID
+);
+
+-- Same using IN
+SELECT c.CustomerID, c.CompanyName
+FROM Customers c
+WHERE c.CustomerID IN (
+    SELECT CustomerID 
+    FROM Orders
+);
+
+-- Customers with NO orders (using NOT EXISTS)
+SELECT c.CustomerID, c.CompanyName
+FROM Customers c
+WHERE NOT EXISTS (
+    SELECT 1 
+    FROM Orders o 
+    WHERE o.CustomerID = c.CustomerID
+);
+
+-- Problem with NOT IN if NULLs exist
+SELECT c.CustomerID, c.CompanyName
+FROM Customers c
+WHERE c.CustomerID NOT IN (
+    SELECT CustomerID 
+    FROM Orders 
+    -- WHERE CustomerID IS NOT NULL  -- Must add this!
+);
+4. Practical / Interview Example
+Problem: Find products that have never been ordered, but only in active categories.
+
+Solution:
+
+sql
+-- Using NOT EXISTS (recommended)
+SELECT 
+    p.ProductID,
+    p.ProductName,
+    p.Price,
+    c.CategoryName
+FROM Products p
+JOIN Categories c ON p.CategoryID = c.CategoryID
+WHERE c.Active = 1
+    AND NOT EXISTS (
+        SELECT 1 
+        FROM OrderDetails od 
+        WHERE od.ProductID = p.ProductID
+    )
+ORDER BY p.ProductName;
+
+-- Using NOT IN (with NULL check)
+SELECT 
+    p.ProductID,
+    p.ProductName,
+    p.Price,
+    c.CategoryName
+FROM Products p
+JOIN Categories c ON p.CategoryID = c.CategoryID
+WHERE c.Active = 1
+    AND p.ProductID NOT IN (
+        SELECT ProductID 
+        FROM OrderDetails 
+        WHERE ProductID IS NOT NULL  -- Important!
+    )
+ORDER BY p.ProductName;
+
+-- Using LEFT JOIN (alternative approach)
+SELECT 
+    p.ProductID,
+    p.ProductName,
+    p.Price,
+    c.CategoryName
+FROM Products p
+JOIN Categories c ON p.CategoryID = c.CategoryID
+LEFT JOIN OrderDetails od ON p.ProductID = od.ProductID
+WHERE c.Active = 1
+    AND od.ProductID IS NULL
+ORDER BY p.ProductName;
+5. Important Notes / Common Mistakes
+
+Always use EXISTS/NOT EXISTS over IN/NOT IN for correlated subqueries
+
+NOT IN fails if subquery returns any NULLs
+
+EXISTS stops at first match (better performance)
+
+IN must materialize full result set
+
+For small lists of literal values, IN is fine
+
+Common mistake: Using NOT IN without considering NULLs
+
+sql
+-- DANGEROUS: Returns no rows if any NULL in subquery
+SELECT * FROM Table1 
+WHERE ID NOT IN (SELECT ID FROM Table2);
+
+-- SAFE: Use NOT EXISTS
+SELECT * FROM Table1 t1
+WHERE NOT EXISTS (SELECT 1 FROM Table2 t2 WHERE t2.ID = t1.ID);
+COMMON TABLE EXPRESSIONS (CTE)
+Simple CTE
+1. Concept Explanation
+
+What it is: Temporary named result set defined within query execution.
+
+Why it is needed: Improves readability, enables recursion, breaks complex queries.
+
+Where it is used: Complex reporting, recursive hierarchies, query simplification.
+
+2. Syntax (MSSQL)
+
+sql
+WITH CTE_Name (Column1, Column2, ...) AS (
+    -- CTE query definition
+    SELECT ...
+)
+-- Main query using CTE
+SELECT * FROM CTE_Name;
+
+-- Multiple CTEs
+WITH 
+    CTE1 AS (SELECT ...),
+    CTE2 AS (SELECT ...)
+SELECT ...
+FROM CTE1
+JOIN CTE2 ON ...;
+3. Simple Example
+
+sql
+-- Simple CTE for department summary
+WITH DepartmentSummary AS (
+    SELECT 
+        DeptID,
+        COUNT(*) AS EmployeeCount,
+        AVG(Salary) AS AvgSalary,
+        SUM(Salary) AS TotalSalary
+    FROM Employees
+    GROUP BY DeptID
+)
+SELECT 
+    d.DepartmentName,
+    ds.EmployeeCount,
+    ds.AvgSalary,
+    ds.TotalSalary,
+    ds.AvgSalary - (SELECT AVG(AvgSalary) FROM DepartmentSummary) AS DiffFromOverallAvg
+FROM DepartmentSummary ds
+JOIN Departments d ON ds.DeptID = d.DeptID
+ORDER BY ds.AvgSalary DESC;
+
+-- Multiple CTEs
+WITH 
+    HighEarners AS (
+        SELECT EmployeeID, FirstName, LastName, Salary
+        FROM Employees
+        WHERE Salary > 80000
+    ),
+    DepartmentInfo AS (
+        SELECT DeptID, DepartmentName, Location
+        FROM Departments
+        WHERE Location = 'Headquarters'
+    )
+SELECT 
+    he.FirstName,
+    he.LastName,
+    he.Salary,
+    di.DepartmentName,
+    di.Location
+FROM HighEarners he
+JOIN DepartmentInfo di ON he.DeptID = di.DeptID
+ORDER BY he.Salary DESC;
+4. Practical / Interview Example
+Problem: Calculate running total of sales by month and year-over-year comparison.
+
+Solution:
+
+sql
+WITH MonthlySales AS (
+    SELECT 
+        YEAR(OrderDate) AS OrderYear,
+        MONTH(OrderDate) AS OrderMonth,
+        DATENAME(MONTH, OrderDate) AS MonthName,
+        SUM(TotalAmount) AS MonthlySales,
+        COUNT(*) AS OrderCount
+    FROM Orders
+    WHERE OrderDate >= DATEADD(YEAR, -3, GETDATE())
+    GROUP BY 
+        YEAR(OrderDate),
+        MONTH(OrderDate),
+        DATENAME(MONTH, OrderDate)
+),
+SalesWithGrowth AS (
+    SELECT 
+        OrderYear,
+        OrderMonth,
+        MonthName,
+        MonthlySales,
+        OrderCount,
+        -- Running total within year
+        SUM(MonthlySales) OVER (
+            PARTITION BY OrderYear 
+            ORDER BY OrderMonth
+        ) AS YTDSales,
+        -- Previous month sales
+        LAG(MonthlySales) OVER (
+            ORDER BY OrderYear, OrderMonth
+        ) AS PreviousMonthSales,
+        -- Same month previous year
+        LAG(MonthlySales, 12) OVER (
+            ORDER BY OrderYear, OrderMonth
+        ) AS PreviousYearSales
+    FROM MonthlySales
+)
+SELECT 
+    OrderYear,
+    OrderMonth,
+    MonthName,
+    MonthlySales,
+    OrderCount,
+    YTDSales,
+    PreviousMonthSales,
+    PreviousYearSales,
+    -- Calculate growth percentages
+    CASE 
+        WHEN PreviousMonthSales > 0 
+        THEN ((MonthlySales - PreviousMonthSales) * 100.0 / PreviousMonthSales)
+        ELSE NULL 
+    END AS MonthOverMonthGrowth,
+    CASE 
+        WHEN PreviousYearSales > 0 
+        THEN ((MonthlySales - PreviousYearSales) * 100.0 / PreviousYearSales)
+        ELSE NULL 
+    END AS YearOverYearGrowth
+FROM SalesWithGrowth
+ORDER BY OrderYear DESC, OrderMonth DESC;
+5. Important Notes / Common Mistakes
+
+CTE exists only during query execution
+
+Can reference previous CTEs in same WITH clause
+
+Can be used in SELECT, INSERT, UPDATE, DELETE, MERGE
+
+Consider temp table or table variable for reuse
+
+Maximum recursion default is 100 (for recursive CTEs)
+
+Common mistake: Forgetting the semicolon before WITH
+
+sql
+-- ERROR: Missing semicolon
+SELECT * FROM Table1
+WITH CTE AS (SELECT ...)  -- Need semicolon before WITH
+
+-- CORRECT
+SELECT * FROM Table1;  -- Semicolon here
+WITH CTE AS (SELECT ...)
+SELECT * FROM CTE;

@@ -1,0 +1,62 @@
+IS NULL / IS NOT NULL
+1. Concept Explanation
+
+What it is: Operators to check for NULL (missing/unknown) values.
+
+Why it is needed: NULL represents missing data; normal comparisons don't work with NULL.
+
+Where it is used: Data quality checks, handling optional fields, data cleanup.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT columns
+FROM table
+WHERE column IS NULL;      -- Returns rows where column is NULL
+
+WHERE column IS NOT NULL;  -- Returns rows where column is not NULL
+3. Simple Example
+
+sql
+-- Find customers without phone numbers
+SELECT * FROM Customers
+WHERE Phone IS NULL;
+
+-- Find employees with manager assigned
+SELECT * FROM Employees
+WHERE ManagerID IS NOT NULL;
+
+-- Combined with other conditions
+SELECT * FROM Orders
+WHERE ShippedDate IS NULL
+    AND OrderDate < DATEADD(DAY, -7, GETDATE()); -- Not shipped in 7 days
+4. Practical / Interview Example
+Problem: Find all products that have no price or zero price, and haven't been sold in the last 6 months.
+
+Solution:
+
+sql
+SELECT 
+    p.ProductID,
+    p.ProductName,
+    p.Price,
+    MAX(o.OrderDate) AS LastOrderDate
+FROM Products p
+LEFT JOIN OrderDetails od ON p.ProductID = od.ProductID
+LEFT JOIN Orders o ON od.OrderID = o.OrderID
+WHERE (p.Price IS NULL OR p.Price = 0)
+    AND (o.OrderDate IS NULL OR o.OrderDate < DATEADD(MONTH, -6, GETDATE()))
+GROUP BY p.ProductID, p.ProductName, p.Price
+HAVING COUNT(od.OrderDetailID) = 0
+    OR MAX(o.OrderDate) < DATEADD(MONTH, -6, GETDATE());
+5. Important Notes / Common Mistakes
+
+NULL = NULL returns NULL (not TRUE)
+
+NULL <> NULL returns NULL (not FALSE)
+
+Use ISNULL() or COALESCE() to handle NULLs in calculations
+
+Aggregate functions ignore NULLs (except COUNT(*))
+
+Common mistake: Using = NULL instead of IS NULL

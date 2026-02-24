@@ -1,0 +1,2623 @@
+ADVANCED QUERY PROBLEMS
+Nth highest salary
+1. Concept Explanation
+
+What it is: Finding the Nth highest/distinct value in a column.
+
+Why it is needed: Ranking analysis, top-N queries with specific positions.
+
+Where it is used: Salary analysis, performance rankings, competition results.
+
+2. Different Methods
+
+sql
+-- Method 1: Using OFFSET-FETCH (SQL Server 2012+)
+SELECT DISTINCT Salary
+FROM Employees
+ORDER BY Salary DESC
+OFFSET N-1 ROWS
+FETCH NEXT 1 ROWS ONLY;
+
+-- Method 2: Using ROW_NUMBER()
+WITH RankedSalaries AS (
+    SELECT DISTINCT Salary,
+        ROW_NUMBER() OVER (ORDER BY Salary DESC) AS Rank
+    FROM Employees
+)
+SELECT Salary FROM RankedSalaries WHERE Rank = N;
+
+-- Method 3: Using correlated subquery
+SELECT DISTINCT Salary
+FROM Employees e1
+WHERE N = (
+    SELECT COUNT(DISTINCT Salary)
+    FROM Employees e2
+    WHERE e2.Salary >= e1.Salary
+);
+3. Simple Example
+
+sql
+-- 3rd highest salary
+SELECT DISTINCT Salary
+FROM Employees
+ORDER BY Salary DESC
+OFFSET 2 ROWS
+FETCH NEXT 1 ROWS ONLY;
+
+-- 2nd highest using ROW_NUMBER
+WITH Ranked AS (
+    SELECT DISTINCT Salary,
+        ROW_NUMBER() OVER (ORDER BY Salary DESC) AS Rank
+    FROM Employees
+)
+SELECT Salary FROM Ranked WHERE Rank = 2;
+
+-- Nth highest function
+CREATE FUNCTION GetNthHighestSalary(@N INT)
+RETURNS DECIMAL(10,2)
+AS
+BEGIN
+    DECLARE @Result DECIMAL(10,2);
+    
+    WITH RankedSalaries AS (
+        SELECT DISTINCT Salary,
+            DENSE_RANK() OVER (ORDER BY Salary DESC) AS Rank
+        FROM Employees
+    )
+    SELECT @Result = Salary
+    FROM RankedSalaries
+    WHERE Rank = @N;
+    
+    RETURN @Result;
+END;
+4. Practical / Interview Example
+Problem: Find Nth highest salary with ties, and include employee details.
+
+Solution:
+
+sql
+-- Function to get Nth highest salary with ties
+CREATE OR ALTER FUNCTION GetNthHighestSalaryWithTies(@N INT)
+RETURNS TABLE
+AS
+RETURN (
+    WITH RankedSalaries AS (
+        SELECT 
+            e.EmployeeID,
+            e.FirstName + ' ' + e.LastName AS EmployeeName,
+            e.Department,
+            e.Salary,
+            e.HireDate,
+            
+            -- Use DENSE_RANK to handle ties properly
+            DENSE_RANK() OVER (ORDER BY e.Salary DESC) AS SalaryRank,
+            
+            -- Also show within-department rank
+            DENSE_RANK() OVER (
+                PARTITION BY e.Department 
+                ORDER BY e.Salary DESC
+            ) AS DeptSalaryRank,
+            
+            -- Percentile
+            CAST(
+                PERCENT_RANK() OVER (ORDER BY e.Salary) * 100 
+                AS DECIMAL(5,2)
+            ) AS SalaryPercentile
+            
+        FROM Employees e
+        WHERE e.Active = 1
+            AND e.Salary IS NOT NULL
+    )
+    SELECT 
+        EmployeeID,
+        EmployeeName,
+        Department,
+        Salary,
+        HireDate,
+        SalaryRank,
+        DeptSalaryRank,
+        SalaryPercentile,
+        
+        -- Difference from previous rank salary
+        Salary - LAG(Salary, 1) OVER (ORDER BY Salary DESC) 
+            AS DiffFromPreviousRank,
+            
+        -- Percentage difference from median
+        CASE 
+            WHEN PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY Salary) 
+                OVER () > 0
+            THEN (Salary - PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY Salary) 
+                OVER ()) * 100.0 / 
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY Salary) OVER ()
+            ELSE NULL
+        END AS PercentVsMedian
+        
+    FROM RankedSalaries
+    WHERE SalaryRank = @N
+);
+
+-- Usage: Get 3rd highest salary with all employees at that level
+SELECT * FROM GetNthHighestSalaryWithTies(3);
+
+-- Alternative: Dynamic N with parameter
+DECLARE @N INT = 5;
+
+WITH SalaryDistribution AS (
+    SELECT 
+        Salary,
+        DENSE_RANK() OVER (ORDER BY Salary DESC) AS SalaryRank,
+        COUNT(*) AS EmployeeCount,
+        MIN(EmployeeID) AS MinEmployeeID,
+        MAX(EmployeeID) AS MaxEmployeeID
+    FROM Employees
+    WHERE Salary IS NOT NULL
+    GROUP BY Salary
+)
+SELECT 
+    @N AS RequestedRank,
+    Salary,
+    EmployeeCount,
+    MinEmployeeID,
+    MaxEmployeeID,
+    
+    -- Additional stats
+    (SELECT COUNT(DISTINCT Salary) FROM Employees) AS DistinctSalaries,
+    (SELECT MAX(Salary) FROM Employees) AS MaxSalary,
+    (SELECT MIN(Salary) FROM Employees WHERE Salary > 0) AS MinSalary,
+    
+    -- Percentage of total salary pool
+    Salary * EmployeeCount * 100.0 / 
+        (SELECT SUM(Salary) FROM Employees) AS PercentOfTotalSalary,
+    
+    -- Cumulative percentage
+    SUM(Salary * EmployeeCount) OVER (ORDER BY Salary DESC) * 100.0 / 
+        (SELECT SUM(Salary) FROM Employees) AS CumulativePercent
+    
+FROM SalaryDistribution
+WHERE SalaryRank = @N;
+5. Important Notes / Common Mistakes
+
+DENSE_RANK for ties, ROW_NUMBER for strict ordering
+
+Handle NULL salaries appropriately
+
+Consider performance for large datasets
+
+OFFSET-FETCH is cleanest for simple cases
+
+Common mistake: Using RANK instead of DENSE_RANK for Nth highest
+
+sql
+-- WRONG: RANK creates gaps with ties
+WHERE RANK() OVER (ORDER BY Salary DESC) = N
+
+-- CORRECT: DENSE_RANK for Nth highest with ties
+WHERE DENSE_RANK() OVER (ORDER BY Salary DESC) = N
+Top N per group
+1. Concept Explanation
+
+What it is: Getting top N records for each group/category.
+
+Why it is needed: Department rankings, category leaders, group analysis.
+
+Where it is used: Sales rankings by region, top products by category.
+
+2. Methods
+
+sql
+-- Method 1: Using ROW_NUMBER() with PARTITION BY
+WITH Ranked AS (
+    SELECT *,
+        ROW_NUMBER() OVER (
+            PARTITION BY group_column 
+            ORDER BY value_column DESC
+        ) AS Rank
+    FROM table
+)
+SELECT * FROM Ranked WHERE Rank <= N;
+
+-- Method 2: Using correlated subquery
+SELECT t1.*
+FROM table t1
+WHERE (
+    SELECT COUNT(*) 
+    FROM table t2 
+    WHERE t2.group_column = t1.group_column 
+        AND t2.value_column >= t1.value_column
+) <= N;
+3. Simple Example
+
+sql
+-- Top 3 highest paid employees per department
+WITH DeptSalaries AS (
+    SELECT 
+        EmployeeID,
+        FirstName,
+        LastName,
+        Department,
+        Salary,
+        ROW_NUMBER() OVER (
+            PARTITION BY Department 
+            ORDER BY Salary DESC
+        ) AS DeptRank
+    FROM Employees
+)
+SELECT * FROM DeptSalaries WHERE DeptRank <= 3;
+
+-- Top 5 selling products per category
+WITH ProductSales AS (
+    SELECT 
+        p.CategoryID,
+        p.ProductID,
+        p.ProductName,
+        SUM(od.Quantity * od.UnitPrice) AS TotalSales,
+        ROW_NUMBER() OVER (
+            PARTITION BY p.CategoryID 
+            ORDER BY SUM(od.Quantity * od.UnitPrice) DESC
+        ) AS CategoryRank
+    FROM Products p
+    JOIN OrderDetails od ON p.ProductID = od.ProductID
+    JOIN Orders o ON od.OrderID = o.OrderID
+    WHERE o.OrderDate >= DATEADD(MONTH, -3, GETDATE())
+    GROUP BY p.CategoryID, p.ProductID, p.ProductName
+)
+SELECT * FROM ProductSales WHERE CategoryRank <= 5;
+4. Practical / Interview Example
+Problem: Find top performing salespeople by region with multiple metrics.
+
+Solution:
+
+sql
+WITH SalesPerformance AS (
+    SELECT 
+        s.SalespersonID,
+        sp.FirstName + ' ' + sp.LastName AS SalespersonName,
+        sp.Region,
+        sp.Department,
+        COUNT(DISTINCT o.OrderID) AS OrderCount,
+        SUM(o.TotalAmount) AS TotalSales,
+        COUNT(DISTINCT o.CustomerID) AS UniqueCustomers,
+        AVG(o.TotalAmount) AS AvgOrderValue,
+        MIN(o.OrderDate) AS FirstSaleDate,
+        MAX(o.OrderDate) AS LastSaleDate,
+        
+        -- Complex ranking criteria
+        (SUM(o.TotalAmount) * 0.5 + 
+         COUNT(DISTINCT o.CustomerID) * 0.3 + 
+         AVG(o.TotalAmount) * 0.2) AS PerformanceScore,
+         
+        -- Growth rate (if enough data)
+        CASE 
+            WHEN COUNT(*) >= 2 THEN
+                (MAX(o.TotalAmount) - MIN(o.TotalAmount)) * 100.0 / 
+                NULLIF(MIN(o.TotalAmount), 0)
+            ELSE NULL
+        END AS SalesGrowthPercent
+        
+    FROM Sales s
+    JOIN Salespeople sp ON s.SalespersonID = sp.SalespersonID
+    JOIN Orders o ON s.OrderID = o.OrderID
+    WHERE o.OrderDate >= DATEADD(YEAR, -1, GETDATE())
+        AND s.Commission > 0
+    GROUP BY 
+        s.SalespersonID,
+        sp.FirstName,
+        sp.LastName,
+        sp.Region,
+        sp.Department
+),
+RankedPerformance AS (
+    SELECT 
+        *,
+        -- Rank by multiple criteria
+        ROW_NUMBER() OVER (
+            PARTITION BY Region 
+            ORDER BY PerformanceScore DESC
+        ) AS RegionRankByScore,
+        
+        ROW_NUMBER() OVER (
+            PARTITION BY Region 
+            ORDER BY TotalSales DESC
+        ) AS RegionRankBySales,
+        
+        ROW_NUMBER() OVER (
+            PARTITION BY Region, Department 
+            ORDER BY PerformanceScore DESC
+        ) AS RegionDeptRank,
+        
+        -- Percentile within region
+        CAST(
+            PERCENT_RANK() OVER (
+                PARTITION BY Region 
+                ORDER BY PerformanceScore
+            ) * 100 AS DECIMAL(5,2)
+        ) AS RegionPercentile,
+        
+        -- Comparison to region average
+        TotalSales - AVG(TotalSales) OVER (PARTITION BY Region) 
+            AS VsRegionAvgSales,
+            
+        TotalSales * 100.0 / SUM(TotalSales) OVER (PARTITION BY Region) 
+            AS PercentOfRegionTotal
+        
+    FROM SalesPerformance
+)
+SELECT 
+    Region,
+    Department,
+    SalespersonName,
+    OrderCount,
+    TotalSales,
+    UniqueCustomers,
+    AvgOrderValue,
+    PerformanceScore,
+    SalesGrowthPercent,
+    RegionRankByScore,
+    RegionRankBySales,
+    RegionDeptRank,
+    RegionPercentile,
+    VsRegionAvgSales,
+    PercentOfRegionTotal,
+    
+    -- Performance category
+    CASE 
+        WHEN RegionPercentile >= 90 THEN 'Top 10% - Elite'
+        WHEN RegionPercentile >= 75 THEN 'Top 25% - Excellent'
+        WHEN RegionPercentile >= 50 THEN 'Above Average'
+        WHEN RegionPercentile >= 25 THEN 'Average'
+        ELSE 'Below Average'
+    END AS PerformanceCategory,
+    
+    -- Eligibility for bonuses
+    CASE 
+        WHEN RegionRankByScore <= 3 THEN 'Gold Tier Bonus'
+        WHEN RegionRankByScore <= 10 THEN 'Silver Tier Bonus'
+        WHEN RegionRankByScore <= 25 THEN 'Bronze Tier Bonus'
+        ELSE 'Standard'
+    END AS BonusEligibility
+    
+FROM RankedPerformance
+WHERE RegionRankByScore <= 10  -- Top 10 per region
+    OR RegionDeptRank <= 3     -- OR top 3 per department
+ORDER BY 
+    Region,
+    RegionRankByScore,
+    Department,
+    RegionDeptRank;
+5. Important Notes / Common Mistakes
+
+Use PARTITION BY for grouping
+
+Use ROW_NUMBER() for strict top N (no ties)
+
+Use DENSE_RANK() if ties should get same rank
+
+Consider performance with large partitions
+
+Use WHERE filter on rank column, not HAVING
+
+Common mistake: Wrong ORDER BY direction
+
+sql
+-- WRONG: ASC instead of DESC for "top"
+ROW_NUMBER() OVER (PARTITION BY Dept ORDER BY Salary ASC)
+
+-- CORRECT: DESC for highest values
+ROW_NUMBER() OVER (PARTITION BY Dept ORDER BY Salary DESC)
+Customers who never ordered
+1. Concept Explanation
+
+What it is: Finding records in one table with no related records in another.
+
+Why it is needed: Identify inactive customers, prospect follow-up.
+
+Where it is used: Customer analysis, marketing campaigns, reactivation.
+
+2. Methods
+
+sql
+-- Method 1: Using NOT EXISTS (Recommended)
+SELECT c.*
+FROM Customers c
+WHERE NOT EXISTS (
+    SELECT 1 FROM Orders o WHERE o.CustomerID = c.CustomerID
+);
+
+-- Method 2: Using LEFT JOIN
+SELECT c.*
+FROM Customers c
+LEFT JOIN Orders o ON c.CustomerID = o.CustomerID
+WHERE o.OrderID IS NULL;
+
+-- Method 3: Using NOT IN (Careful with NULLs)
+SELECT c.*
+FROM Customers c
+WHERE c.CustomerID NOT IN (
+    SELECT CustomerID FROM Orders WHERE CustomerID IS NOT NULL
+);
+3. Simple Example
+
+sql
+-- Customers with no orders
+SELECT 
+    c.CustomerID,
+    c.CompanyName,
+    c.ContactName,
+    c.Country,
+    c.RegistrationDate
+FROM Customers c
+WHERE NOT EXISTS (
+    SELECT 1 
+    FROM Orders o 
+    WHERE o.CustomerID = c.CustomerID
+);
+
+-- Products never ordered
+SELECT 
+    p.ProductID,
+    p.ProductName,
+    p.Category,
+    p.UnitPrice
+FROM Products p
+WHERE NOT EXISTS (
+    SELECT 1 
+    FROM OrderDetails od 
+    WHERE od.ProductID = p.ProductID
+);
+
+-- Employees with no subordinates
+SELECT 
+    e.EmployeeID,
+    e.FirstName + ' ' + e.LastName AS EmployeeName
+FROM Employees e
+WHERE NOT EXISTS (
+    SELECT 1 
+    FROM Employees sub 
+    WHERE sub.ManagerID = e.EmployeeID
+);
+4. Practical / Interview Example
+Problem: Analyze customers who registered but never ordered, with engagement metrics.
+
+Solution:
+
+sql
+WITH CustomerEngagement AS (
+    SELECT 
+        c.CustomerID,
+        c.CompanyName,
+        c.ContactName,
+        c.Country,
+        c.RegistrationDate,
+        c.CustomerType,
+        c.Source,
+        
+        -- Order metrics
+        COUNT(DISTINCT o.OrderID) AS OrderCount,
+        SUM(o.TotalAmount) AS TotalSpent,
+        MIN(o.OrderDate) AS FirstOrderDate,
+        MAX(o.OrderDate) AS LastOrderDate,
+        
+        -- Engagement activities
+        COUNT(DISTINCT cs.ContactID) AS ContactCount,
+        COUNT(DISTINCT cl.ClickID) AS WebsiteClicks,
+        COUNT(DISTINCT nl.EmailID) AS NewsletterOpens,
+        
+        -- Days since registration
+        DATEDIFF(DAY, c.RegistrationDate, GETDATE()) AS DaysSinceRegistration
+        
+    FROM Customers c
+    LEFT JOIN Orders o ON c.CustomerID = o.CustomerID
+    LEFT JOIN CustomerSupportContacts cs ON c.CustomerID = cs.CustomerID
+    LEFT JOIN ClickLogs cl ON c.CustomerID = cl.CustomerID
+    LEFT JOIN NewsletterLogs nl ON c.CustomerID = nl.CustomerID
+    GROUP BY 
+        c.CustomerID, c.CompanyName, c.ContactName, c.Country,
+        c.RegistrationDate, c.CustomerType, c.Source
+),
+NeverOrdered AS (
+    SELECT 
+        *,
+        
+        -- Engagement score
+        (ContactCount * 10 + 
+         WebsiteClicks * 5 + 
+         NewsletterOpens * 3) AS EngagementScore,
+         
+        -- Time-based categories
+        CASE 
+            WHEN DaysSinceRegistration <= 30 THEN 'New (0-30 days)'
+            WHEN DaysSinceRegistration <= 90 THEN 'Recent (31-90 days)'
+            WHEN DaysSinceRegistration <= 180 THEN 'Established (91-180 days)'
+            WHEN DaysSinceRegistration <= 365 THEN 'Long-term (181-365 days)'
+            ELSE 'Very Long-term (365+ days)'
+        END AS RegistrationCategory,
+        
+        -- Risk of churn (for non-buyers)
+        CASE 
+            WHEN DaysSinceRegistration <= 30 AND EngagementScore > 20 
+                THEN 'High Potential - New & Engaged'
+            WHEN DaysSinceRegistration <= 90 AND EngagementScore > 10 
+                THEN 'Medium Potential - Recent Activity'
+            WHEN DaysSinceRegistration > 90 AND EngagementScore = 0 
+                THEN 'High Risk - Inactive'
+            WHEN DaysSinceRegistration > 180 AND EngagementScore < 5 
+                THEN 'Medium Risk - Low Engagement'
+            ELSE 'Low Risk - Some Engagement'
+        END AS ChurnRiskCategory
+        
+    FROM CustomerEngagement
+    WHERE OrderCount = 0
+        AND c.RegistrationDate >= DATEADD(YEAR, -2, GETDATE())
+)
+SELECT 
+    RegistrationCategory,
+    CustomerType,
+    Source,
+    COUNT(*) AS CustomerCount,
+    AVG(DaysSinceRegistration) AS AvgDaysSinceRegistration,
+    AVG(EngagementScore) AS AvgEngagementScore,
+    SUM(ContactCount) AS TotalContacts,
+    SUM(WebsiteClicks) AS TotalClicks,
+    SUM(NewsletterOpens) AS TotalNewsletterOpens,
+    
+    -- Percentage of total customers
+    COUNT(*) * 100.0 / (SELECT COUNT(*) FROM NeverOrdered) AS PercentOfNonBuyers,
+    
+    -- Action recommendations
+    CASE 
+        WHEN RegistrationCategory LIKE 'New%' AND AvgEngagementScore > 15
+            THEN 'Targeted Onboarding Campaign'
+        WHEN RegistrationCategory LIKE 'Recent%' AND AvgEngagementScore < 5
+            THEN 'Re-engagement Email Series'
+        WHEN RegistrationCategory LIKE 'Established%'
+            THEN 'Special Offer or Discount'
+        WHEN RegistrationCategory LIKE 'Long-term%'
+            THEN 'Win-back Campaign'
+        ELSE 'General Awareness'
+    END AS RecommendedAction
+    
+FROM NeverOrdered
+GROUP BY RegistrationCategory, CustomerType, Source
+ORDER BY 
+    CASE RegistrationCategory
+        WHEN 'New (0-30 days)' THEN 1
+        WHEN 'Recent (31-90 days)' THEN 2
+        WHEN 'Established (91-180 days)' THEN 3
+        WHEN 'Long-term (181-365 days)' THEN 4
+        ELSE 5
+    END,
+    CustomerCount DESC;
+5. Important Notes / Common Mistakes
+
+NOT EXISTS is usually fastest and handles NULLs best
+
+LEFT JOIN ... WHERE NULL is also good
+
+NOT IN has issues with NULLs in subquery
+
+Consider adding date filters (e.g., last year)
+
+Include engagement metrics for better analysis
+
+Common mistake: Using NOT IN without NULL check
+
+sql
+-- WRONG: Returns no rows if any NULL in subquery
+WHERE CustomerID NOT IN (SELECT CustomerID FROM Orders)
+
+-- CORRECT: Handle NULLs or use NOT EXISTS
+WHERE CustomerID NOT IN (
+    SELECT CustomerID FROM Orders WHERE CustomerID IS NOT NULL
+)
+Consecutive records
+1. Concept Explanation
+
+What it is: Finding sequences of consecutive records based on criteria.
+
+Why it is needed: Pattern detection, streak analysis, sequence finding.
+
+Where it is used: Login streaks, consecutive sales days, attendance.
+
+2. Methods
+
+sql
+-- Using LAG/LEAD with window functions
+WITH Sequences AS (
+    SELECT *,
+        CASE 
+            WHEN date_column = DATEADD(DAY, 1, LAG(date_column) OVER (ORDER BY date_column))
+            THEN 0 ELSE 1 
+        END AS SequenceStart
+    FROM table
+),
+Groups AS (
+    SELECT *,
+        SUM(SequenceStart) OVER (ORDER BY date_column) AS SequenceGroup
+    FROM Sequences
+)
+SELECT 
+    MIN(date_column) AS StartDate,
+    MAX(date_column) AS EndDate,
+    COUNT(*) AS ConsecutiveDays
+FROM Groups
+GROUP BY SequenceGroup
+HAVING COUNT(*) >= N;
+3. Simple Example
+
+sql
+-- Find consecutive login days for users
+WITH LoginSequences AS (
+    SELECT 
+        UserID,
+        LoginDate,
+        CASE 
+            WHEN DATEADD(DAY, 1, LAG(LoginDate) OVER (
+                PARTITION BY UserID ORDER BY LoginDate
+            )) = LoginDate
+            THEN 0 ELSE 1 
+        END AS SequenceStart
+    FROM UserLogins
+    GROUP BY UserID, LoginDate  -- Remove duplicate dates
+),
+SequenceGroups AS (
+    SELECT 
+        *,
+        SUM(SequenceStart) OVER (
+            PARTITION BY UserID ORDER BY LoginDate
+        ) AS SequenceGroup
+    FROM LoginSequences
+)
+SELECT 
+    UserID,
+    MIN(LoginDate) AS StreakStart,
+    MAX(LoginDate) AS StreakEnd,
+    COUNT(*) AS ConsecutiveDays,
+    DATEDIFF(DAY, MIN(LoginDate), MAX(LoginDate)) + 1 AS StreakLength
+FROM SequenceGroups
+GROUP BY UserID, SequenceGroup
+HAVING COUNT(*) >= 3  -- Minimum streak length
+ORDER BY UserID, StreakStart;
+4. Practical / Interview Example
+Problem: Find employees with consecutive late arrivals and analyze patterns.
+
+Solution:
+
+sql
+WITH AttendanceData AS (
+    SELECT 
+        EmployeeID,
+        CAST(CheckInTime AS DATE) AS AttendanceDate,
+        DATEPART(WEEKDAY, CheckInTime) AS WeekdayNumber,
+        DATENAME(WEEKDAY, CheckInTime) AS WeekdayName,
+        CAST(CheckInTime AS TIME) AS CheckInTime,
+        ExpectedStartTime,
+        
+        -- Late arrival flag
+        CASE 
+            WHEN CAST(CheckInTime AS TIME) > ExpectedStartTime 
+            THEN 1 ELSE 0 
+        END AS IsLate,
+        
+        -- Late minutes
+        CASE 
+            WHEN CAST(CheckInTime AS TIME) > ExpectedStartTime 
+            THEN DATEDIFF(MINUTE, ExpectedStartTime, CAST(CheckInTime AS TIME))
+            ELSE 0
+        END AS LateMinutes
+        
+    FROM EmployeeAttendance
+    WHERE CheckInTime IS NOT NULL
+        AND CAST(CheckInTime AS DATE) >= DATEADD(MONTH, -3, GETDATE())
+),
+LateSequences AS (
+    SELECT 
+        *,
+        -- Identify start of consecutive late sequence
+        CASE 
+            WHEN IsLate = 1 AND (
+                -- Previous day not late OR gap in dates
+                LAG(IsLate, 1, 0) OVER (
+                    PARTITION BY EmployeeID ORDER BY AttendanceDate
+                ) = 0
+                OR AttendanceDate <> DATEADD(DAY, 1, 
+                    LAG(AttendanceDate, 1) OVER (
+                        PARTITION BY EmployeeID ORDER BY AttendanceDate
+                    )
+                )
+            )
+            THEN 1 ELSE 0 
+        END AS SequenceStart
+    FROM AttendanceData
+),
+SequenceGroups AS (
+    SELECT 
+        *,
+        SUM(SequenceStart) OVER (
+            PARTITION BY EmployeeID ORDER BY AttendanceDate
+        ) AS SequenceGroup
+    FROM LateSequences
+    WHERE IsLate = 1  -- Only consider late days for sequences
+),
+ConsecutiveLateAnalysis AS (
+    SELECT 
+        EmployeeID,
+        SequenceGroup,
+        MIN(AttendanceDate) AS SequenceStartDate,
+        MAX(AttendanceDate) AS SequenceEndDate,
+        COUNT(*) AS ConsecutiveLateDays,
+        AVG(LateMinutes) AS AvgLateMinutes,
+        MAX(LateMinutes) AS MaxLateMinutes,
+        SUM(LateMinutes) AS TotalLateMinutes,
+        
+        -- Weekday pattern in sequence
+        STRING_AGG(WeekdayName, ', ') WITHIN GROUP (ORDER BY AttendanceDate) 
+            AS WeekdaysInSequence,
+        
+        -- Gap to previous sequence
+        DATEDIFF(DAY, 
+            LAG(MAX(AttendanceDate), 1) OVER (
+                PARTITION BY EmployeeID ORDER BY MIN(AttendanceDate)
+            ),
+            MIN(AttendanceDate)
+        ) - 1 AS DaysSincePreviousSequence
+        
+    FROM SequenceGroups
+    GROUP BY EmployeeID, SequenceGroup
+    HAVING COUNT(*) >= 2  -- At least 2 consecutive late days
+),
+EmployeeInfo AS (
+    SELECT 
+        cla.*,
+        e.FirstName + ' ' + e.LastName AS EmployeeName,
+        e.Department,
+        e.ManagerID,
+        m.FirstName + ' ' + m.LastName AS ManagerName,
+        e.HireDate,
+        DATEDIFF(MONTH, e.HireDate, GETDATE()) AS MonthsWithCompany
+        
+    FROM ConsecutiveLateAnalysis cla
+    JOIN Employees e ON cla.EmployeeID = e.EmployeeID
+    LEFT JOIN Employees m ON e.ManagerID = m.EmployeeID
+)
+SELECT 
+    EmployeeID,
+    EmployeeName,
+    Department,
+    ManagerName,
+    SequenceStartDate,
+    SequenceEndDate,
+    ConsecutiveLateDays,
+    AvgLateMinutes,
+    MaxLateMinutes,
+    TotalLateMinutes,
+    WeekdaysInSequence,
+    DaysSincePreviousSequence,
+    MonthsWithCompany,
+    
+    -- Severity classification
+    CASE 
+        WHEN ConsecutiveLateDays >= 5 THEN 'Critical - Pattern'
+        WHEN ConsecutiveLateDays >= 3 AND AvgLateMinutes > 30 
+            THEN 'High - Extended Lateness'
+        WHEN ConsecutiveLateDays >= 2 AND AvgLateMinutes > 15 
+            THEN 'Medium - Regular Lateness'
+        ELSE 'Low - Minor Issue'
+    END AS SeverityLevel,
+    
+    -- Pattern detection
+    CASE 
+        WHEN WeekdaysInSequence LIKE '%Monday%' 
+            AND WeekdaysInSequence NOT LIKE '%Tuesday%'
+            AND WeekdaysInSequence NOT LIKE '%Wednesday%'
+            AND WeekdaysInSequence NOT LIKE '%Thursday%'
+            AND WeekdaysInSequence NOT LIKE '%Friday%'
+            THEN 'Monday Pattern'
+        WHEN WeekdaysInSequence LIKE '%Friday%'
+            THEN 'Friday Pattern'
+        WHEN WeekdaysInSequence LIKE 'Monday, Tuesday, Wednesday%'
+            THEN 'Early Week Pattern'
+        WHEN WeekdaysInSequence LIKE 'Wednesday, Thursday, Friday%'
+            THEN 'Late Week Pattern'
+        ELSE 'Mixed Pattern'
+    END AS PatternType,
+    
+    -- Recommended action
+    CASE 
+        WHEN SeverityLevel = 'Critical - Pattern' 
+            THEN 'Formal Warning Required'
+        WHEN SeverityLevel = 'High - Extended Lateness' 
+            THEN 'Manager Discussion + Monitoring'
+        WHEN SeverityLevel = 'Medium - Regular Lateness' 
+            THEN 'Verbal Warning + Flexible Start Trial'
+        ELSE 'Informal Discussion'
+    END AS RecommendedAction
+    
+FROM EmployeeInfo
+ORDER BY 
+    ConsecutiveLateDays DESC,
+    AvgLateMinutes DESC;
+5. Important Notes / Common Mistakes
+
+Handle date gaps correctly
+
+Use LAG/LEAD for sequence detection
+
+Consider business days vs calendar days
+
+Remove duplicates before sequence detection
+
+Common mistake: Not handling gaps in dates
+
+sql
+-- WRONG: Assumes consecutive calendar days
+WHEN date = LAG(date) OVER (...) + 1
+
+-- BETTER: Handle possible gaps
+WHEN date = DATEADD(DAY, 1, LAG(date) OVER (...))
+Gaps and islands problems
+1. Concept Explanation
+
+What it is: Identifying contiguous ranges (islands) and missing ranges (gaps).
+
+Why it is needed: For analyzing sequences, availability, coverage.
+
+Where it is used: Date ranges, numeric sequences, scheduling.
+
+2. Key Concepts
+
+Islands: Contiguous sequences of values
+
+Gaps: Missing values between islands
+
+Solution pattern: Use window functions to group contiguous values
+
+3. Simple Example
+
+sql
+-- Find islands of consecutive numbers
+WITH Numbers AS (
+    SELECT 1 AS Num UNION SELECT 2 UNION SELECT 3 UNION 
+    SELECT 5 UNION SELECT 6 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10
+),
+Islands AS (
+    SELECT 
+        Num,
+        Num - ROW_NUMBER() OVER (ORDER BY Num) AS IslandGroup
+    FROM Numbers
+)
+SELECT 
+    MIN(Num) AS IslandStart,
+    MAX(Num) AS IslandEnd,
+    COUNT(*) AS IslandLength
+FROM Islands
+GROUP BY IslandGroup
+ORDER BY IslandStart;
+
+-- Find gaps in sequence
+WITH Numbers AS (
+    SELECT 1 AS Num UNION SELECT 2 UNION SELECT 3 UNION 
+    SELECT 5 UNION SELECT 6 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10
+),
+AllNumbers AS (
+    SELECT 
+        Num AS CurrentNum,
+        LEAD(Num) OVER (ORDER BY Num) AS NextNum
+    FROM Numbers
+)
+SELECT 
+    CurrentNum + 1 AS GapStart,
+    NextNum - 1 AS GapEnd
+FROM AllNumbers
+WHERE NextNum - CurrentNum > 1;
+4. Practical / Interview Example
+Problem: Analyze employee project assignments for coverage gaps and overlaps.
+
+Solution:
+
+sql
+WITH ProjectAssignments AS (
+    SELECT 
+        EmployeeID,
+        ProjectID,
+        StartDate,
+        EndDate,
+        
+        -- Ensure EndDate is not NULL for calculations
+        ISNULL(EndDate, GETDATE()) AS EffectiveEndDate,
+        
+        -- Project duration in days
+        DATEDIFF(DAY, StartDate, ISNULL(EndDate, GETDATE())) + 1 AS ProjectDays
+        
+    FROM EmployeeProjects
+    WHERE StartDate IS NOT NULL
+),
+-- Create a row for each day of project assignment
+ProjectDays AS (
+    SELECT 
+        EmployeeID,
+        ProjectID,
+        DATEADD(DAY, n.Number, StartDate) AS ProjectDay
+    FROM ProjectAssignments pa
+    CROSS JOIN (
+        SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS Number
+        FROM master..spt_values
+    ) n
+    WHERE n.Number <= pa.ProjectDays - 1
+        AND DATEADD(DAY, n.Number, StartDate) <= GETDATE()
+),
+-- Find islands of consecutive working days
+WorkingSequences AS (
+    SELECT 
+        EmployeeID,
+        ProjectDay,
+        
+        -- Identify start of new sequence
+        CASE 
+            WHEN DATEADD(DAY, -1, ProjectDay) = 
+                LAG(ProjectDay) OVER (PARTITION BY EmployeeID ORDER BY ProjectDay)
+            THEN 0 ELSE 1 
+        END AS SequenceStart
+        
+    FROM ProjectDays
+),
+WorkingIslands AS (
+    SELECT 
+        *,
+        SUM(SequenceStart) OVER (
+            PARTITION BY EmployeeID ORDER BY ProjectDay
+        ) AS IslandID
+    FROM WorkingSequences
+),
+IslandSummary AS (
+    SELECT 
+        EmployeeID,
+        IslandID,
+        MIN(ProjectDay) AS IslandStart,
+        MAX(ProjectDay) AS IslandEnd,
+        COUNT(*) AS IslandLength,
+        
+        -- Find projects in this island
+        STRING_AGG(CAST(ProjectID AS VARCHAR(10)), ', ') 
+            WITHIN GROUP (ORDER BY ProjectDay) AS ProjectsInIsland
+        
+    FROM WorkingIslands
+    GROUP BY EmployeeID, IslandID
+),
+-- Find gaps between islands
+Gaps AS (
+    SELECT 
+        EmployeeID,
+        IslandEnd AS GapStartDate,
+        LEAD(IslandStart, 1) OVER (
+            PARTITION BY EmployeeID ORDER BY IslandStart
+        ) AS GapEndDate,
+        
+        -- Gap length
+        DATEDIFF(DAY, IslandEnd, 
+            LEAD(IslandStart, 1) OVER (
+                PARTITION BY EmployeeID ORDER BY IslandStart
+            )
+        ) - 1 AS GapLength
+        
+    FROM IslandSummary
+),
+EmployeeAnalysis AS (
+    SELECT 
+        e.EmployeeID,
+        e.FirstName + ' ' + e.LastName AS EmployeeName,
+        e.Department,
+        e.HireDate,
+        
+        -- Island statistics
+        COUNT(DISTINCT i.IslandID) AS TotalIslands,
+        SUM(i.IslandLength) AS TotalWorkingDays,
+        AVG(i.IslandLength) AS AvgIslandLength,
+        MAX(i.IslandLength) AS MaxIslandLength,
+        MIN(i.IslandLength) AS MinIslandLength,
+        
+        -- Gap statistics
+        COUNT(g.GapStartDate) AS TotalGaps,
+        SUM(CASE WHEN g.GapLength > 0 THEN g.GapLength ELSE 0 END) AS TotalGapDays,
+        AVG(CASE WHEN g.GapLength > 0 THEN g.GapLength ELSE NULL END) AS AvgGapLength,
+        MAX(g.GapLength) AS MaxGapLength
+        
+    FROM Employees e
+    LEFT JOIN IslandSummary i ON e.EmployeeID = i.EmployeeID
+    LEFT JOIN Gaps g ON e.EmployeeID = g.EmployeeID
+    WHERE e.Active = 1
+    GROUP BY 
+        e.EmployeeID, e.FirstName, e.LastName, e.Department, e.HireDate
+),
+CoverageAnalysis AS (
+    SELECT 
+        *,
+        
+        -- Coverage metrics
+        TotalWorkingDays * 100.0 / 
+            DATEDIFF(DAY, HireDate, GETDATE()) AS CoveragePercentage,
+        
+        -- Utilization score
+        CASE 
+            WHEN TotalIslands = 0 THEN 0
+            WHEN TotalGaps = 0 THEN 100
+            ELSE (TotalWorkingDays * 100.0 / 
+                  (TotalWorkingDays + TotalGapDays))
+        END AS UtilizationScore,
+        
+        -- Work pattern classification
+        CASE 
+            WHEN TotalIslands = 0 THEN 'No Projects'
+            WHEN TotalGaps = 0 THEN 'Continuous Coverage'
+            WHEN AvgGapLength <= 7 THEN 'Minimal Gaps'
+            WHEN AvgGapLength <= 30 THEN 'Occasional Gaps'
+            ELSE 'Frequent Gaps'
+        END AS WorkPattern
+        
+    FROM EmployeeAnalysis
+)
+SELECT 
+    EmployeeID,
+    EmployeeName,
+    Department,
+    HireDate,
+    TotalIslands,
+    TotalWorkingDays,
+    TotalGaps,
+    TotalGapDays,
+    CoveragePercentage,
+    UtilizationScore,
+    WorkPattern,
+    
+    -- Recommendations
+    CASE 
+        WHEN CoveragePercentage < 50 THEN 'Low Utilization - Assign More Projects'
+        WHEN UtilizationScore < 70 THEN 'Gap Issues - Improve Project Planning'
+        WHEN TotalGaps > 5 THEN 'Fragmented Schedule - Consolidate Assignments'
+        ELSE 'Good Coverage'
+    END AS ActionRecommendation,
+    
+    -- Detailed gap analysis for reporting
+    (SELECT 
+        STRING_AGG(
+            CAST(GapStartDate AS VARCHAR(10)) + ' to ' + 
+            CAST(GapEndDate AS VARCHAR(10)) + ' (' + 
+            CAST(GapLength AS VARCHAR(10)) + ' days)',
+            ' | '
+        )
+     FROM Gaps g 
+     WHERE g.EmployeeID = ca.EmployeeID
+        AND g.GapLength > 0
+    ) AS GapDetails
+    
+FROM CoverageAnalysis ca
+ORDER BY UtilizationScore DESC, CoveragePercentage DESC;
+5. Important Notes / Common Mistakes
+
+Handle NULL end dates appropriately
+
+Use ROW_NUMBER() trick for islands: value - ROW_NUMBER()
+
+Consider business vs calendar days
+
+For date gaps, use DATEADD for accurate calculations
+
+Test edge cases (single records, no gaps, all gaps)
+
+Common mistake: Off-by-one errors in date calculations
+
+sql
+-- WRONG: Might miss adjacent dates
+DATEDIFF(DAY, date1, date2) = 1
+
+-- BETTER: Use DATEADD for adjacency check
+date2 = DATEADD(DAY, 1, date1)
+PERFORMANCE BASICS
+Index basics
+1. Concept Explanation
+
+What it is: Database structure that improves data retrieval speed.
+
+Why it is needed: To speed up queries, enforce uniqueness, optimize joins.
+
+Where it is used: Frequently queried columns, foreign keys, search columns.
+
+2. Index Types in MSSQL
+
+sql
+-- Clustered Index (Table physically sorted by this index)
+CREATE CLUSTERED INDEX IX_TableName_Column 
+ON TableName(ColumnName);
+
+-- Non-clustered Index (Separate structure, like book index)
+CREATE NONCLUSTERED INDEX IX_TableName_Column 
+ON TableName(ColumnName);
+
+-- Composite Index (Multiple columns)
+CREATE INDEX IX_TableName_Col1_Col2 
+ON TableName(Column1, Column2);
+
+-- Unique Index (Enforces uniqueness)
+CREATE UNIQUE INDEX UX_TableName_Column 
+ON TableName(ColumnName);
+3. Simple Example
+
+sql
+-- Create basic indexes
+CREATE CLUSTERED INDEX PK_Employees 
+ON Employees(EmployeeID);
+
+CREATE NONCLUSTERED INDEX IX_Employees_Department 
+ON Employees(Department);
+
+CREATE NONCLUSTERED INDEX IX_Employees_Name 
+ON Employees(LastName, FirstName);
+
+CREATE UNIQUE INDEX UX_Employees_Email 
+ON Employees(Email);
+
+-- Include additional columns in index (SQL Server feature)
+CREATE INDEX IX_Orders_CustomerDate 
+ON Orders(CustomerID, OrderDate)
+INCLUDE (TotalAmount, Status);
+4. Practical / Interview Example
+Problem: Design indexes for an e-commerce database schema.
+
+Solution:
+
+sql
+-- Products table
+CREATE CLUSTERED INDEX PK_Products ON Products(ProductID);
+
+-- Search by category and price range
+CREATE NONCLUSTERED INDEX IX_Products_Category_Price 
+ON Products(CategoryID, Price)
+INCLUDE (ProductName, StockQuantity);
+
+-- Search by product name
+CREATE NONCLUSTERED INDEX IX_Products_Name 
+ON Products(ProductName)
+INCLUDE (CategoryID, Price, StockQuantity);
+
+-- Orders table  
+CREATE CLUSTERED INDEX PK_Orders ON Orders(OrderID);
+
+-- Frequently filter by customer and date
+CREATE NONCLUSTERED INDEX IX_Orders_Customer_Date 
+ON Orders(CustomerID, OrderDate DESC)
+INCLUDE (TotalAmount, Status);
+
+-- Search by status and date
+CREATE NONCLUSTERED INDEX IX_Orders_Status_Date 
+ON Orders(Status, OrderDate)
+INCLUDE (CustomerID, TotalAmount);
+
+-- OrderDetails table
+CREATE CLUSTERED INDEX PK_OrderDetails 
+ON OrderDetails(OrderID, ProductID);
+
+-- Quick product sales analysis
+CREATE NONCLUSTERED INDEX IX_OrderDetails_Product 
+ON OrderDetails(ProductID)
+INCLUDE (OrderID, Quantity, UnitPrice);
+
+-- Customers table
+CREATE CLUSTERED INDEX PK_Customers ON Customers(CustomerID);
+
+-- Search by email (unique)
+CREATE UNIQUE NONCLUSTERED INDEX UX_Customers_Email 
+ON Customers(Email);
+
+-- Search by location
+CREATE NONCLUSTERED INDEX IX_Customers_Location 
+ON Customers(Country, City)
+INCLUDE (CompanyName, ContactName);
+
+-- Check existing indexes
+SELECT 
+    t.name AS TableName,
+    i.name AS IndexName,
+    i.type_desc AS IndexType,
+    c.name AS ColumnName,
+    ic.key_ordinal AS KeyOrder,
+    ic.is_included_column AS IsIncluded
+FROM sys.tables t
+JOIN sys.indexes i ON t.object_id = i.object_id
+JOIN sys.index_columns ic ON i.object_id = ic.object_id 
+    AND i.index_id = ic.index_id
+JOIN sys.columns c ON ic.object_id = c.object_id 
+    AND ic.column_id = c.column_id
+WHERE t.name IN ('Products', 'Orders', 'OrderDetails', 'Customers')
+ORDER BY t.name, i.name, ic.key_ordinal;
+5. Important Notes / Common Mistakes
+
+Clustered index: One per table, choose carefully (usually PK)
+
+Non-clustered: Multiple allowed, for search/join columns
+
+Include columns: Add often-selected columns to avoid key lookups
+
+Index maintenance: Rebuild fragmented indexes
+
+Cost: Indexes slow down INSERT/UPDATE/DELETE
+
+Common mistake: Over-indexing or wrong column order
+
+sql
+-- WRONG: Wrong column order for common queries
+CREATE INDEX IX_Price_Category ON Products(Price, CategoryID);
+-- If queries filter by CategoryID then Price, this won't help much
+
+-- BETTER: Match query pattern
+CREATE INDEX IX_Category_Price ON Products(CategoryID, Price);
+Clustered vs Non-clustered index
+1. Concept Explanation
+
+What it is: Two fundamental index types with different structures and uses.
+
+Why it is needed: Understanding trade-offs for optimal database design.
+
+Where it is used: Table design, query optimization, performance tuning.
+
+2. Comparison
+
+Aspect	Clustered Index	Non-clustered Index
+Number per table	One only	Multiple (up to 999)
+Physical order	Yes, sorts data rows	No, separate structure
+Leaf nodes	Contain actual data rows	Contain pointers to data
+Speed for range queries	Very fast	Slower (needs lookup)
+INSERT/UPDATE cost	High (data must be reordered)	Lower
+Storage	No extra storage	Extra storage needed
+Best for	Primary key, sequential access	Foreign keys, search columns
+3. Simple Example
+
+sql
+-- Table with clustered index on ID (common pattern)
+CREATE TABLE Employees (
+    EmployeeID INT PRIMARY KEY CLUSTERED,  -- Clustered index
+    FirstName VARCHAR(50),
+    LastName VARCHAR(50),
+    Department VARCHAR(50),
+    Salary DECIMAL(10,2)
+);
+
+-- Add non-clustered indexes
+CREATE NONCLUSTERED INDEX IX_Employees_Department 
+ON Employees(Department);
+
+CREATE NONCLUSTERED INDEX IX_Employees_Name 
+ON Employees(LastName, FirstName);
+
+-- Query using clustered index (seek)
+SELECT * FROM Employees WHERE EmployeeID = 123;
+
+-- Query using non-clustered index (seek + lookup)
+SELECT * FROM Employees WHERE Department = 'Sales';
+4. Practical / Interview Example
+Problem: Analyze and optimize index strategy for a reporting database.
+
+Solution:
+
+sql
+-- Analyze current table structure and usage
+WITH IndexUsage AS (
+    SELECT 
+        t.name AS TableName,
+        i.name AS IndexName,
+        i.type_desc AS IndexType,
+        i.is_unique AS IsUnique,
+        SUM(s.user_seeks + s.user_scans + s.user_lookups) AS TotalReads,
+        SUM(s.user_updates) AS TotalWrites,
+        STATS_DATE(i.object_id, i.index_id) AS StatsLastUpdated
+    FROM sys.tables t
+    JOIN sys.indexes i ON t.object_id = i.object_id
+    LEFT JOIN sys.dm_db_index_usage_stats s ON i.object_id = s.object_id 
+        AND i.index_id = s.index_id
+    WHERE t.name IN ('Sales', 'Products', 'Customers')
+    GROUP BY t.name, i.name, i.type_desc, i.is_unique, 
+             i.object_id, i.index_id
+),
+IndexDetails AS (
+    SELECT 
+        t.name AS TableName,
+        i.name AS IndexName,
+        i.type_desc AS IndexType,
+        COL_NAME(ic.object_id, ic.column_id) AS ColumnName,
+        ic.key_ordinal AS KeyOrder,
+        ic.is_included_column AS IsIncluded
+    FROM sys.tables t
+    JOIN sys.indexes i ON t.object_id = i.object_id
+    JOIN sys.index_columns ic ON i.object_id = ic.object_id 
+        AND i.index_id = ic.index_id
+    JOIN sys.columns c ON ic.object_id = c.object_id 
+        AND ic.column_id = c.column_id
+)
+SELECT 
+    u.TableName,
+    u.IndexName,
+    u.IndexType,
+    u.IsUnique,
+    u.TotalReads,
+    u.TotalWrites,
+    u.StatsLastUpdated,
+    
+    -- Index columns
+    STUFF((
+        SELECT ', ' + d.ColumnName + 
+               CASE WHEN d.IsIncluded = 1 THEN ' (INCLUDED)' ELSE '' END
+        FROM IndexDetails d
+        WHERE d.TableName = u.TableName 
+            AND d.IndexName = u.IndexName
+        ORDER BY d.KeyOrder, d.IsIncluded
+        FOR XML PATH('')
+    ), 1, 2, '') AS IndexColumns,
+    
+    -- Read/Write ratio
+    CASE 
+        WHEN u.TotalWrites > 0 
+        THEN CAST(u.TotalReads * 1.0 / u.TotalWrites AS DECIMAL(10,2))
+        ELSE NULL 
+    END AS ReadWriteRatio,
+    
+    -- Index effectiveness analysis
+    CASE 
+        WHEN u.TotalReads = 0 THEN 'Unused - Consider dropping'
+        WHEN u.TotalWrites > u.TotalReads * 10 THEN 'Write Heavy - Review need'
+        WHEN u.IndexType = 'CLUSTERED' AND u.IsUnique = 0 
+            THEN 'Consider making clustered index unique'
+        WHEN DATEDIFF(DAY, u.StatsLastUpdated, GETDATE()) > 30 
+            THEN 'Statistics outdated - Update recommended'
+        ELSE 'OK'
+    END AS HealthStatus,
+    
+    -- Recommendations
+    CASE 
+        WHEN u.TotalReads = 0 AND u.IndexType = 'NONCLUSTERED' 
+            THEN 'DROP INDEX ' + u.IndexName + ' ON ' + u.TableName
+        WHEN u.IndexType = 'CLUSTERED' AND u.IsUnique = 0 
+            THEN 'ALTER TABLE ' + u.TableName + ' ADD CONSTRAINT UX_' + 
+                 u.TableName + '_PK UNIQUE CLUSTERED (PrimaryKeyColumn)'
+        WHEN DATEDIFF(DAY, u.StatsLastUpdated, GETDATE()) > 30 
+            THEN 'UPDATE STATISTICS ' + u.TableName + ' ' + u.IndexName
+        ELSE 'No action needed'
+    END AS RecommendedAction
+    
+FROM IndexUsage u
+ORDER BY 
+    u.TableName,
+    CASE u.IndexType 
+        WHEN 'CLUSTERED' THEN 1 
+        ELSE 2 
+    END,
+    u.TotalReads DESC;
+5. Important Notes / Common Mistakes
+
+Choose clustered index on: Most queried column, sequential insert pattern
+
+Avoid clustered on: Frequently updated columns, wide columns
+
+Non-clustered indexes: Add for WHERE, JOIN, ORDER BY columns
+
+Covering indexes: Use INCLUDE for often-selected columns
+
+Monitor: Use DMVs to see index usage
+
+Common mistake: Clustered index on GUID (causes fragmentation)
+
+How filtering order affects performance
+1. Concept Explanation
+
+What it is: The order of conditions in WHERE clause can impact performance.
+
+Why it is needed: To write efficient queries that use indexes effectively.
+
+Where it is used: Query optimization, performance tuning.
+
+2. Key Principles
+
+Put most selective conditions first
+
+Use indexed columns in equality comparisons before ranges
+
+Avoid functions on indexed columns in WHERE clause
+
+Use sargable (search argument able) expressions
+
+3. Simple Example
+
+sql
+-- Less efficient: Function on indexed column
+SELECT * FROM Employees 
+WHERE YEAR(HireDate) = 2023;  -- Can't use index on HireDate effectively
+
+-- More efficient: Range on indexed column  
+SELECT * FROM Employees 
+WHERE HireDate >= '2023-01-01' AND HireDate < '2024-01-01';
+
+-- Less efficient: Non-sargable
+SELECT * FROM Products 
+WHERE Price * 1.1 > 100;  -- Calculation on column
+
+-- More efficient: Sargable
+SELECT * FROM Products 
+WHERE Price > 100 / 1.1;
+
+-- Order matters with AND
+-- Put most selective condition first
+SELECT * FROM Orders 
+WHERE Status = 'Shipped'  -- More selective (fewer rows)
+    AND CustomerID = 123  -- Less selective
+    AND OrderDate > '2023-01-01';
+4. Practical / Interview Example
+Problem: Optimize a complex reporting query with multiple filters.
+
+Solution:
+
+sql
+-- Original inefficient query
+SELECT 
+    o.OrderID,
+    c.CompanyName,
+    e.FirstName + ' ' + e.LastName AS Salesperson,
+    o.OrderDate,
+    o.TotalAmount,
+    o.Status,
+    COUNT(od.ProductID) AS ProductCount
+FROM Orders o
+JOIN Customers c ON o.CustomerID = c.CustomerID
+JOIN Employees e ON o.EmployeeID = e.EmployeeID
+JOIN OrderDetails od ON o.OrderID = od.OrderID
+WHERE 
+    -- Non-sargable conditions
+    YEAR(o.OrderDate) = 2023
+    AND MONTH(o.OrderDate) = 12
+    AND LEFT(c.CompanyName, 1) = 'A'
+    AND LEN(e.LastName) > 5
+    AND o.TotalAmount * 1.1 > 1000
+    AND o.Status IN ('Shipped', 'Processing')
+GROUP BY 
+    o.OrderID, c.CompanyName, e.FirstName, e.LastName,
+    o.OrderDate, o.TotalAmount, o.Status
+HAVING COUNT(od.ProductID) > 1
+ORDER BY o.TotalAmount DESC;
+
+-- Optimized version
+WITH DateRange AS (
+    SELECT 
+        DATEADD(YEAR, -1, GETDATE()) AS StartDate,
+        GETDATE() AS EndDate
+)
+SELECT 
+    o.OrderID,
+    c.CompanyName,
+    e.FirstName + ' ' + e.LastName AS Salesperson,
+    o.OrderDate,
+    o.TotalAmount,
+    o.Status,
+    od.ProductCount
+FROM Orders o
+-- Use existing indexes on CustomerID and EmployeeID
+JOIN Customers c ON o.CustomerID = c.CustomerID
+JOIN Employees e ON o.EmployeeID = e.EmployeeID
+-- Pre-aggregate OrderDetails to avoid costly join in GROUP BY
+CROSS APPLY (
+    SELECT COUNT(*) AS ProductCount
+    FROM OrderDetails od
+    WHERE od.OrderID = o.OrderID
+) od
+CROSS JOIN DateRange dr
+WHERE 
+    -- Sargable date range (can use index on OrderDate)
+    o.OrderDate >= DATEADD(YEAR, -1, GETDATE())
+    AND o.OrderDate <= GETDATE()
+    
+    -- Most selective conditions first (based on data distribution)
+    AND o.Status IN ('Shipped', 'Processing')  -- Usually selective
+    
+    -- Then equality conditions
+    AND o.CustomerID IN (
+        SELECT CustomerID 
+        FROM Customers 
+        WHERE CompanyName LIKE 'A%'  -- Move function to subquery
+    )
+    
+    -- Range conditions
+    AND o.TotalAmount > 909.09  -- 1000 / 1.1, sargable
+    
+    -- Less selective conditions last
+    AND e.EmployeeID IN (
+        SELECT EmployeeID 
+        FROM Employees 
+        WHERE LEN(LastName) > 5  -- Move function to subquery
+    )
+    
+    -- Having condition moved to WHERE for pushdown
+    AND od.ProductCount > 1
+    
+    -- Additional optimization: Filter by month if needed
+    AND MONTH(o.OrderDate) = 12  -- Still non-sargable but less critical
+ORDER BY o.TotalAmount DESC;
+
+-- Create supporting indexes if needed
+CREATE INDEX IX_Orders_Date_Status_Amount 
+ON Orders(OrderDate, Status, TotalAmount)
+INCLUDE (CustomerID, EmployeeID);
+
+CREATE INDEX IX_Customers_Name 
+ON Customers(CompanyName)
+INCLUDE (CustomerID);
+
+CREATE INDEX IX_Employees_Name 
+ON Employees(LastName)
+INCLUDE (EmployeeID, FirstName);
+5. Important Notes / Common Mistakes
+
+Sargable expressions: Can use indexes (column operator value)
+
+Non-sargable: Can't use indexes (function(column) operator value)
+
+Selectivity: Put conditions that filter most rows first
+
+Index order: Match WHERE clause order to index column order
+
+Avoid: Functions on indexed columns in WHERE
+
+Common mistake: WHERE Column * 2 > 100 instead of WHERE Column > 50
+
+When to avoid subqueries
+1. Concept Explanation
+
+What it is: Understanding performance implications of subqueries.
+
+Why it is needed: To write efficient queries and avoid performance pitfalls.
+
+Where it is used: Query optimization, rewriting inefficient queries.
+
+2. When to Avoid Subqueries
+
+Correlated subqueries in SELECT clause (for each row)
+
+Multiple subqueries returning same data
+
+Subqueries that can be rewritten as JOINs
+
+Nested subqueries when CTE or temp table would be better
+
+Subqueries in WHERE when EXISTS would be better
+
+3. Simple Example
+
+sql
+-- INEFFICIENT: Correlated subquery in SELECT
+SELECT 
+    e.EmployeeID,
+    e.FirstName,
+    e.LastName,
+    (SELECT COUNT(*) FROM Orders o WHERE o.EmployeeID = e.EmployeeID) AS OrderCount,
+    (SELECT SUM(TotalAmount) FROM Orders o WHERE o.EmployeeID = e.EmployeeID) AS TotalSales
+FROM Employees e;
+
+-- EFFICIENT: Use JOIN and GROUP BY
+SELECT 
+    e.EmployeeID,
+    e.FirstName,
+    e.LastName,
+    COUNT(o.OrderID) AS OrderCount,
+    SUM(o.TotalAmount) AS TotalSales
+FROM Employees e
+LEFT JOIN Orders o ON e.EmployeeID = o.EmployeeID
+GROUP BY e.EmployeeID, e.FirstName, e.LastName;
+
+-- INEFFICIENT: Multiple similar subqueries
+SELECT 
+    CustomerID,
+    (SELECT COUNT(*) FROM Orders o WHERE o.CustomerID = c.CustomerID) AS OrderCount,
+    (SELECT MAX(OrderDate) FROM Orders o WHERE o.CustomerID = c.CustomerID) AS LastOrder,
+    (SELECT SUM(TotalAmount) FROM Orders o WHERE o.CustomerID = c.CustomerID) AS TotalSpent
+FROM Customers c;
+
+-- EFFICIENT: Single derived table
+SELECT 
+    c.CustomerID,
+    oStats.OrderCount,
+    oStats.LastOrder,
+    oStats.TotalSpent
+FROM Customers c
+LEFT JOIN (
+    SELECT 
+        CustomerID,
+        COUNT(*) AS OrderCount,
+        MAX(OrderDate) AS LastOrder,
+        SUM(TotalAmount) AS TotalSpent
+    FROM Orders
+    GROUP BY CustomerID
+) oStats ON c.CustomerID = oStats.CustomerID;
+4. Practical / Interview Example
+Problem: Rewrite a complex reporting query with multiple inefficient subqueries.
+
+Solution:
+
+sql
+-- Original query with multiple inefficient subqueries
+SELECT 
+    p.ProductID,
+    p.ProductName,
+    p.CategoryID,
+    p.UnitPrice,
+    
+    -- Subquery 1: Current month sales
+    (SELECT SUM(od.Quantity * od.UnitPrice)
+     FROM OrderDetails od
+     JOIN Orders o ON od.OrderID = o.OrderID
+     WHERE od.ProductID = p.ProductID
+        AND YEAR(o.OrderDate) = YEAR(GETDATE())
+        AND MONTH(o.OrderDate) = MONTH(GETDATE())
+    ) AS CurrentMonthSales,
+    
+    -- Subquery 2: Previous month sales  
+    (SELECT SUM(od.Quantity * od.UnitPrice)
+     FROM OrderDetails od
+     JOIN Orders o ON od.OrderID = o.OrderID
+     WHERE od.ProductID = p.ProductID
+        AND o.OrderDate >= DATEADD(MONTH, -1, DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0))
+        AND o.OrderDate < DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)
+    ) AS PreviousMonthSales,
+    
+    -- Subquery 3: Total lifetime sales
+    (SELECT SUM(od.Quantity * od.UnitPrice)
+     FROM OrderDetails od
+     WHERE od.ProductID = p.ProductID
+    ) AS LifetimeSales,
+    
+    -- Subquery 4: Average order quantity
+    (SELECT AVG(od.Quantity)
+     FROM OrderDetails od
+     WHERE od.ProductID = p.ProductID
+    ) AS AvgOrderQuantity
+    
+FROM Products p
+WHERE p.Discontinued = 0;
+
+-- Optimized version using CTEs and single scan
+WITH MonthlySales AS (
+    SELECT 
+        od.ProductID,
+        YEAR(o.OrderDate) AS SaleYear,
+        MONTH(o.OrderDate) AS SaleMonth,
+        SUM(od.Quantity * od.UnitPrice) AS MonthlySales,
+        SUM(od.Quantity) AS MonthlyQuantity,
+        COUNT(DISTINCT o.OrderID) AS MonthlyOrders
+    FROM OrderDetails od
+    JOIN Orders o ON od.OrderID = o.OrderID
+    WHERE o.OrderDate >= DATEADD(MONTH, -12, GETDATE())
+    GROUP BY od.ProductID, YEAR(o.OrderDate), MONTH(o.OrderDate)
+),
+ProductAggregates AS (
+    SELECT 
+        od.ProductID,
+        SUM(od.Quantity * od.UnitPrice) AS LifetimeSales,
+        AVG(od.Quantity) AS AvgOrderQuantity,
+        COUNT(DISTINCT od.OrderID) AS TotalOrders,
+        SUM(od.Quantity) AS TotalQuantitySold
+    FROM OrderDetails od
+    GROUP BY od.ProductID
+),
+CurrentMonth AS (
+    SELECT 
+        ProductID,
+        MonthlySales AS CurrentMonthSales
+    FROM MonthlySales
+    WHERE SaleYear = YEAR(GETDATE())
+        AND SaleMonth = MONTH(GETDATE())
+),
+PreviousMonth AS (
+    SELECT 
+        ProductID,
+        MonthlySales AS PreviousMonthSales
+    FROM MonthlySales
+    WHERE SaleYear = YEAR(DATEADD(MONTH, -1, GETDATE()))
+        AND SaleMonth = MONTH(DATEADD(MONTH, -1, GETDATE()))
+)
+SELECT 
+    p.ProductID,
+    p.ProductName,
+    p.CategoryID,
+    p.UnitPrice,
+    COALESCE(cm.CurrentMonthSales, 0) AS CurrentMonthSales,
+    COALESCE(pm.PreviousMonthSales, 0) AS PreviousMonthSales,
+    COALESCE(pa.LifetimeSales, 0) AS LifetimeSales,
+    COALESCE(pa.AvgOrderQuantity, 0) AS AvgOrderQuantity,
+    pa.TotalOrders,
+    pa.TotalQuantitySold,
+    
+    -- Calculate growth
+    CASE 
+        WHEN COALESCE(pm.PreviousMonthSales, 0) > 0
+        THEN (COALESCE(cm.CurrentMonthSales, 0) - pm.PreviousMonthSales) * 100.0 / 
+             pm.PreviousMonthSales
+        ELSE NULL
+    END AS MonthOverMonthGrowth,
+    
+    -- Sales trend (last 3 months average)
+    (
+        SELECT AVG(ms.MonthlySales)
+        FROM MonthlySales ms
+        WHERE ms.ProductID = p.ProductID
+            AND (ms.SaleYear * 100 + ms.SaleMonth) >= 
+                (YEAR(GETDATE()) * 100 + MONTH(GETDATE()) - 3)
+    ) AS Last3MonthsAvg
+    
+FROM Products p
+LEFT JOIN CurrentMonth cm ON p.ProductID = cm.ProductID
+LEFT JOIN PreviousMonth pm ON p.ProductID = pm.ProductID
+LEFT JOIN ProductAggregates pa ON p.ProductID = pa.ProductID
+WHERE p.Discontinued = 0
+ORDER BY p.ProductName;
+
+-- Create supporting indexes
+CREATE INDEX IX_OrderDetails_Product 
+ON OrderDetails(ProductID)
+INCLUDE (OrderID, Quantity, UnitPrice);
+
+CREATE INDEX IX_Orders_Date 
+ON Orders(OrderDate)
+INCLUDE (OrderID);
+5. Important Notes / Common Mistakes
+
+Correlated subqueries: Run for each row (O(n²) potential)
+
+Multiple similar subqueries: Can often be combined
+
+EXISTS is usually better than IN for existence checks
+
+JOINs are often better than multiple scalar subqueries
+
+Use CTEs or derived tables for complex subqueries
+
+Common mistake: Using subquery when JOIN would work
+
+BEST PRACTICES
+Writing readable SQL
+1. Concept Explanation
+
+What it is: Writing SQL that is easy to understand, maintain, and debug.
+
+Why it is needed: Team collaboration, maintenance, reducing bugs.
+
+Where it is used: All production SQL code, shared repositories.
+
+2. Readability Guidelines
+
+Use consistent formatting and indentation
+
+Use meaningful aliases
+
+Comment complex logic
+
+Break complex queries into CTEs
+
+Use standard SQL constructs
+
+3. Simple Example
+
+sql
+-- POOR READABILITY:
+select e.emp_id,e.fname,e.lname,d.dept_name from employees e inner join departments d on e.dept_id=d.dept_id where e.salary>50000 and e.hire_date>'2020-01-01' order by e.lname,e.fname
+
+-- GOOD READABILITY:
+SELECT 
+    e.EmployeeID,
+    e.FirstName,
+    e.LastName,
+    d.DepartmentName
+FROM Employees e
+INNER JOIN Departments d 
+    ON e.DeptID = d.DeptID
+WHERE e.Salary > 50000
+    AND e.HireDate > '2020-01-01'
+ORDER BY 
+    e.LastName,
+    e.FirstName;
+4. Practical / Interview Example
+Problem: Write a clean, readable query for a complex business report.
+
+Solution:
+
+sql
+/*
+    Monthly Sales Performance Report
+    Purpose: Analyze sales performance by region and product category
+    Author: Data Analytics Team
+    Last Updated: 2024-01-15
+*/
+WITH 
+    -- Get base sales data for the period
+    SalesData AS (
+        SELECT 
+            o.OrderID,
+            o.OrderDate,
+            o.CustomerID,
+            o.TotalAmount,
+            od.ProductID,
+            od.Quantity,
+            od.UnitPrice,
+            od.Quantity * od.UnitPrice AS LineTotal
+        FROM Orders o
+        INNER JOIN OrderDetails od 
+            ON o.OrderID = od.OrderID
+        WHERE o.OrderDate >= DATEADD(YEAR, -1, GETDATE())
+            AND o.Status = 'Shipped'
+    ),
+    
+    -- Enrich with product and customer information
+    EnrichedSales AS (
+        SELECT 
+            sd.*,
+            p.ProductName,
+            p.CategoryID,
+            c.CategoryName,
+            cust.Region,
+            cust.CustomerType
+        FROM SalesData sd
+        INNER JOIN Products p 
+            ON sd.ProductID = p.ProductID
+        INNER JOIN Categories c 
+            ON p.CategoryID = c.CategoryID
+        INNER JOIN Customers cust 
+            ON sd.CustomerID = cust.CustomerID
+    ),
+    
+    -- Aggregate by month and category
+    MonthlyCategorySales AS (
+        SELECT 
+            YEAR(OrderDate) AS SaleYear,
+            MONTH(OrderDate) AS SaleMonth,
+            DATENAME(MONTH, OrderDate) AS MonthName,
+            Region,
+            CategoryName,
+            COUNT(DISTINCT OrderID) AS OrderCount,
+            COUNT(DISTINCT CustomerID) AS CustomerCount,
+            SUM(LineTotal) AS TotalSales,
+            SUM(Quantity) AS TotalUnits,
+            AVG(LineTotal) AS AvgOrderValue
+        FROM EnrichedSales
+        GROUP BY 
+            YEAR(OrderDate),
+            MONTH(OrderDate),
+            DATENAME(MONTH, OrderDate),
+            Region,
+            CategoryName
+    ),
+    
+    -- Calculate growth metrics
+    WithGrowth AS (
+        SELECT 
+            *,
+            -- Previous month sales for same region/category
+            LAG(TotalSales) OVER (
+                PARTITION BY Region, CategoryName 
+                ORDER BY SaleYear, SaleMonth
+            ) AS PreviousMonthSales,
+            
+            -- Same month previous year
+            LAG(TotalSales, 12) OVER (
+                PARTITION BY Region, CategoryName 
+                ORDER BY SaleYear, SaleMonth
+            ) AS PreviousYearSales
+        FROM MonthlyCategorySales
+    )
+    
+-- Final report output
+SELECT 
+    SaleYear,
+    SaleMonth,
+    MonthName,
+    Region,
+    CategoryName,
+    OrderCount,
+    CustomerCount,
+    TotalSales,
+    TotalUnits,
+    AvgOrderValue,
+    PreviousMonthSales,
+    PreviousYearSales,
+    
+    -- Calculate growth percentages
+    CASE 
+        WHEN PreviousMonthSales > 0 
+        THEN (TotalSales - PreviousMonthSales) * 100.0 / PreviousMonthSales
+        ELSE NULL
+    END AS MonthOverMonthGrowth,
+    
+    CASE 
+        WHEN PreviousYearSales > 0 
+        THEN (TotalSales - PreviousYearSales) * 100.0 / PreviousYearSales
+        ELSE NULL
+    END AS YearOverYearGrowth,
+    
+    -- Performance indicator
+    CASE 
+        WHEN TotalSales > AVG(TotalSales) OVER (PARTITION BY Region) 
+        THEN 'Above Average'
+        ELSE 'Below Average'
+    END AS VsRegionAverage
+    
+FROM WithGrowth
+WHERE SaleYear = YEAR(GETDATE())  -- Current year only
+    OR (SaleYear = YEAR(GETDATE()) - 1  -- Or previous year for YoY
+        AND SaleMonth = MONTH(GETDATE()))
+ORDER BY 
+    SaleYear DESC,
+    SaleMonth DESC,
+    Region,
+    TotalSales DESC;
+5. Important Notes / Common Mistakes
+
+Use CTEs to break complex logic into steps
+
+Meaningful aliases: emp for Employees, dept for Departments
+
+Capitalize keywords: SELECT, FROM, WHERE
+
+Indent consistently: 4 spaces per level
+
+Comment complex logic: Explain why, not what
+
+Common mistake: Writing one giant unformatted query
+
+Using aliases properly
+1. Concept Explanation
+
+What it is: Assigning temporary names to tables and columns for clarity.
+
+Why it is needed: Improves readability, especially in joins and subqueries.
+
+Where it is used: All queries with multiple tables or complex expressions.
+
+2. Alias Best Practices
+
+Use short but meaningful aliases
+
+Be consistent across queries
+
+Use AS keyword for clarity (optional but recommended)
+
+Differentiate table vs column aliases
+
+Avoid reserved words as aliases
+
+3. Simple Example
+
+sql
+-- GOOD ALIAS USAGE:
+SELECT 
+    cust.CustomerID,
+    cust.CompanyName AS CustomerCompany,
+    ord.OrderID,
+    ord.OrderDate,
+    emp.FirstName + ' ' + emp.LastName AS SalesRep,
+    prod.ProductName,
+    cat.CategoryName
+FROM Customers cust
+INNER JOIN Orders ord 
+    ON cust.CustomerID = ord.CustomerID
+INNER JOIN Employees emp 
+    ON ord.EmployeeID = emp.EmployeeID
+INNER JOIN OrderDetails det 
+    ON ord.OrderID = det.OrderID
+INNER JOIN Products prod 
+    ON det.ProductID = prod.ProductID
+INNER JOIN Categories cat 
+    ON prod.CategoryID = cat.CategoryID
+WHERE ord.OrderDate >= '2023-01-01'
+ORDER BY ord.OrderDate DESC;
+
+-- POOR ALIAS USAGE:
+SELECT 
+    c.CustomerID,  -- What does 'c' stand for?
+    c.CompanyName,
+    o.OrderID,     -- 'o' could be Order or Orders?
+    e.Name         -- Which table is 'e'?
+FROM Customers c
+JOIN Orders o ON c.ID = o.CustomerID
+JOIN Employees e ON o.EmployeeID = e.ID;
+4. Practical / Interview Example
+Problem: Write a well-aliased query for a complex business analysis.
+
+Solution:
+
+sql
+/*
+    Customer Lifetime Value Analysis
+    Uses consistent, meaningful aliases throughout
+*/
+WITH 
+    -- Customer order summary
+    CustomerOrders AS (
+        SELECT 
+            cust.CustomerID,
+            cust.CompanyName,
+            cust.RegistrationDate,
+            COUNT(DISTINCT ord.OrderID) AS TotalOrders,
+            SUM(ord.TotalAmount) AS LifetimeValue,
+            MIN(ord.OrderDate) AS FirstOrderDate,
+            MAX(ord.OrderDate) AS LastOrderDate,
+            AVG(ord.TotalAmount) AS AvgOrderValue
+        FROM Customers cust
+        LEFT JOIN Orders ord 
+            ON cust.CustomerID = ord.CustomerID
+        GROUP BY 
+            cust.CustomerID,
+            cust.CompanyName,
+            cust.RegistrationDate
+    ),
+    
+    -- Recent activity (last 90 days)
+    RecentActivity AS (
+        SELECT 
+            cust.CustomerID,
+            COUNT(DISTINCT ord.OrderID) AS RecentOrderCount,
+            SUM(ord.TotalAmount) AS RecentSpend,
+            MAX(ord.OrderDate) AS MostRecentOrder
+        FROM Customers cust
+        LEFT JOIN Orders ord 
+            ON cust.CustomerID = ord.CustomerID
+            AND ord.OrderDate >= DATEADD(DAY, -90, GETDATE())
+        GROUP BY cust.CustomerID
+    ),
+    
+    -- Product category preferences
+    CategoryPreferences AS (
+        SELECT 
+            ord.CustomerID,
+            cat.CategoryName,
+            COUNT(DISTINCT ord.OrderID) AS OrdersInCategory,
+            SUM(det.Quantity * det.UnitPrice) AS SpendInCategory
+        FROM Orders ord
+        INNER JOIN OrderDetails det 
+            ON ord.OrderID = det.OrderID
+        INNER JOIN Products prod 
+            ON det.ProductID = prod.ProductID
+        INNER JOIN Categories cat 
+            ON prod.CategoryID = cat.CategoryID
+        GROUP BY ord.CustomerID, cat.CategoryName
+    ),
+    
+    -- Top category per customer
+    TopCategory AS (
+        SELECT 
+            pref.CustomerID,
+            pref.CategoryName AS FavoriteCategory,
+            pref.SpendInCategory AS CategorySpend,
+            ROW_NUMBER() OVER (
+                PARTITION BY pref.CustomerID 
+                ORDER BY pref.SpendInCategory DESC
+            ) AS CategoryRank
+        FROM CategoryPreferences pref
+    )
+    
+-- Final analysis with all metrics
+SELECT 
+    -- Customer identification
+    cust.CustomerID,
+    cust.CompanyName AS CustomerName,
+    cust.Region,
+    cust.CustomerType,
+    
+    -- Lifetime metrics
+    ords.LifetimeValue,
+    ords.TotalOrders,
+    ords.AvgOrderValue,
+    ords.FirstOrderDate,
+    ords.LastOrderDate,
+    
+    -- Recency metrics
+    rec.RecentOrderCount,
+    rec.RecentSpend,
+    rec.MostRecentOrder,
+    
+    -- Days since last activity
+    DATEDIFF(DAY, rec.MostRecentOrder, GETDATE()) AS DaysSinceLastOrder,
+    
+    -- Favorite category
+    topcat.FavoriteCategory,
+    topcat.CategorySpend,
+    
+    -- Customer segmentation
+    CASE 
+        WHEN ords.LifetimeValue > 10000 THEN 'VIP'
+        WHEN ords.LifetimeValue > 5000 THEN 'Gold'
+        WHEN ords.LifetimeValue > 1000 THEN 'Silver'
+        WHEN ords.LifetimeValue > 0 THEN 'Bronze'
+        ELSE 'Prospect'
+    END AS ValueTier,
+    
+    -- Activity status
+    CASE 
+        WHEN rec.MostRecentOrder >= DATEADD(DAY, -30, GETDATE()) THEN 'Active'
+        WHEN rec.MostRecentOrder >= DATEADD(DAY, -90, GETDATE()) THEN 'Recent'
+        WHEN rec.MostRecentOrder >= DATEADD(DAY, -180, GETDATE()) THEN 'Lapsing'
+        ELSE 'Dormant'
+    END AS ActivityStatus
+    
+FROM Customers cust
+INNER JOIN CustomerOrders ords 
+    ON cust.CustomerID = ords.CustomerID
+LEFT JOIN RecentActivity rec 
+    ON cust.CustomerID = rec.CustomerID
+LEFT JOIN TopCategory topcat 
+    ON cust.CustomerID = topcat.CustomerID
+    AND topcat.CategoryRank = 1
+WHERE cust.Active = 1
+ORDER BY 
+    ords.LifetimeValue DESC,
+    cust.CompanyName;
+5. Important Notes / Common Mistakes
+
+Table aliases: Short but meaningful (cust, ord, prod, cat)
+
+Column aliases: Descriptive with AS keyword
+
+Consistency: Use same aliases for same tables across queries
+
+CTE aliases: Should describe the data they contain
+
+Avoid: Single letters except for simple queries
+
+Common mistake: Using unclear aliases like a, b, c, t1, t2
+
+Formatting SQL queries
+1. Concept Explanation
+
+What it is: Consistent structure and layout of SQL code for readability.
+
+Why it is needed: Easier debugging, team collaboration, maintenance.
+
+Where it is used: All SQL code in version control, production systems.
+
+2. Formatting Standards
+
+Keywords in uppercase
+
+Indentation for nested clauses
+
+Line breaks for long lists
+
+Consistent spacing
+
+Column alignment
+
+3. Simple Example
+
+sql
+-- POOR FORMATTING:
+select employeeid,firstname,lastname,department,salary from employees where salary>50000 and department in ('sales','it') order by salary desc,lastname
+
+-- GOOD FORMATTING:
+SELECT 
+    EmployeeID,
+    FirstName,
+    LastName,
+    Department,
+    Salary
+FROM Employees
+WHERE Salary > 50000
+    AND Department IN ('Sales', 'IT')
+ORDER BY 
+    Salary DESC,
+    LastName;
+4. Practical / Interview Example
+Problem: Format a complex analytical query for production deployment.
+
+Solution:
+
+sql
+/*
+    FORMATTING GUIDELINES APPLIED:
+    1. Keywords in UPPERCASE
+    2. 4-space indentation for each level
+    3. Column lists on separate lines
+    4. JOIN conditions aligned
+    5. Complex conditions broken into readable chunks
+    6. Consistent spacing around operators
+    7. Comments for complex sections
+*/
+
+WITH 
+    -- Monthly sales aggregation with customer segmentation
+    MonthlySales AS (
+        SELECT 
+            YEAR(o.OrderDate) AS SaleYear,
+            MONTH(o.OrderDate) AS SaleMonth,
+            DATENAME(MONTH, o.OrderDate) AS MonthName,
+            c.CustomerSegment,
+            c.Region,
+            
+            -- Sales metrics
+            COUNT(DISTINCT o.OrderID) AS OrderCount,
+            COUNT(DISTINCT o.CustomerID) AS CustomerCount,
+            SUM(o.TotalAmount) AS TotalSales,
+            AVG(o.TotalAmount) AS AvgOrderValue,
+            
+            -- Product metrics
+            SUM(od.Quantity) AS TotalUnits,
+            COUNT(DISTINCT od.ProductID) AS UniqueProducts
+            
+        FROM Orders o
+        INNER JOIN Customers c 
+            ON o.CustomerID = c.CustomerID
+        INNER JOIN OrderDetails od 
+            ON o.OrderID = od.OrderID
+            
+        -- Filter for relevant period and status
+        WHERE o.OrderDate >= DATEADD(YEAR, -2, GETDATE())
+            AND o.Status IN ('Shipped', 'Delivered')
+            AND c.Active = 1
+            
+        GROUP BY 
+            YEAR(o.OrderDate),
+            MONTH(o.OrderDate),
+            DATENAME(MONTH, o.OrderDate),
+            c.CustomerSegment,
+            c.Region
+    ),
+    
+    -- Calculate growth and trends
+    WithGrowth AS (
+        SELECT 
+            *,
+            
+            -- Previous month comparison
+            LAG(TotalSales) OVER (
+                PARTITION BY CustomerSegment, Region
+                ORDER BY SaleYear, SaleMonth
+            ) AS PreviousMonthSales,
+            
+            -- Year-over-year comparison
+            LAG(TotalSales, 12) OVER (
+                PARTITION BY CustomerSegment, Region
+                ORDER BY SaleYear, SaleMonth
+            ) AS PreviousYearSales,
+            
+            -- Running totals
+            SUM(TotalSales) OVER (
+                PARTITION BY CustomerSegment, Region
+                ORDER BY SaleYear, SaleMonth
+                ROWS UNBOUNDED PRECEDING
+            ) AS YTDSales
+            
+        FROM MonthlySales
+    ),
+    
+    -- Add performance indicators
+    WithPerformance AS (
+        SELECT 
+            *,
+            
+            -- Growth calculations (with NULL handling)
+            CASE 
+                WHEN PreviousMonthSales > 0 
+                THEN (TotalSales - PreviousMonthSales) * 100.0 / PreviousMonthSales
+                ELSE NULL
+            END AS MonthOverMonthGrowth,
+            
+            CASE 
+                WHEN PreviousYearSales > 0 
+                THEN (TotalSales - PreviousYearSales) * 100.0 / PreviousYearSales
+                ELSE NULL
+            END AS YearOverYearGrowth,
+            
+            -- Performance vs segment average
+            TotalSales - AVG(TotalSales) OVER (
+                PARTITION BY CustomerSegment, SaleYear, SaleMonth
+            ) AS VsSegmentAverage,
+            
+            -- Performance vs region average
+            TotalSales - AVG(TotalSales) OVER (
+                PARTITION BY Region, SaleYear, SaleMonth
+            ) AS VsRegionAverage
+            
+        FROM WithGrowth
+    )
+    
+-- Final formatted output
+SELECT 
+    SaleYear,
+    SaleMonth,
+    MonthName,
+    CustomerSegment,
+    Region,
+    
+    -- Core metrics
+    OrderCount,
+    CustomerCount,
+    TotalSales,
+    AvgOrderValue,
+    TotalUnits,
+    UniqueProducts,
+    
+    -- Growth metrics
+    PreviousMonthSales,
+    PreviousYearSales,
+    YTDSales,
+    MonthOverMonthGrowth,
+    YearOverYearGrowth,
+    
+    -- Performance indicators
+    VsSegmentAverage,
+    VsRegionAverage,
+    
+    -- Performance classification
+    CASE 
+        WHEN MonthOverMonthGrowth > 10 THEN 'Strong Growth'
+        WHEN MonthOverMonthGrowth BETWEEN 0 AND 10 THEN 'Moderate Growth'
+        WHEN MonthOverMonthGrowth BETWEEN -5 AND 0 THEN 'Stable'
+        WHEN MonthOverMonthGrowth BETWEEN -10 AND -5 THEN 'Declining'
+        ELSE 'Significant Decline'
+    END AS GrowthCategory,
+    
+    -- Action recommendation
+    CASE 
+        WHEN MonthOverMonthGrowth < -10 AND TotalSales > 10000 
+            THEN 'High Value Declining - Urgent Action'
+        WHEN MonthOverMonthGrowth < -5 
+            THEN 'Declining - Investigate'
+        WHEN MonthOverMonthGrowth > 15 
+            THEN 'Strong Growth - Scale Success'
+        ELSE 'Monitor'
+    END AS ActionRequired
+    
+FROM WithPerformance
+
+-- Filter for recent complete months
+WHERE SaleYear >= YEAR(DATEADD(MONTH, -12, GETDATE()))
+    AND (SaleYear < YEAR(GETDATE()) 
+         OR SaleMonth <= MONTH(DATEADD(MONTH, -1, GETDATE())))
+
+ORDER BY 
+    SaleYear DESC,
+    SaleMonth DESC,
+    CustomerSegment,
+    Region;
+5. Important Notes / Common Mistakes
+
+UPPERCASE keywords: SELECT, FROM, WHERE, etc.
+
+Indentation: 2-4 spaces per nesting level
+
+Line breaks: After each major clause
+
+Alignment: Columns in lists, JOIN conditions
+
+Spacing: Around operators, after commas
+
+Common mistake: No formatting, making code unreadable
+
+Common interview traps
+1. Concept Explanation
+
+What it is: Tricky SQL questions designed to test deep understanding.
+
+Why it is needed: To distinguish memorization from real understanding.
+
+Where it is used: Technical interviews, certification exams.
+
+2. Common Traps and Solutions
+
+NULL handling in comparisons
+
+JOIN vs LEFT JOIN implications
+
+GROUP BY with non-aggregated columns
+
+Subquery vs JOIN performance
+
+Date/time calculations
+
+3. Example Traps
+
+sql
+-- TRAP 1: NULL in NOT IN
+SELECT * FROM Table1 
+WHERE ID NOT IN (SELECT ID FROM Table2);
+-- Returns nothing if Table2 has any NULL IDs
+
+-- SOLUTION:
+SELECT * FROM Table1 t1
+WHERE NOT EXISTS (SELECT 1 FROM Table2 t2 WHERE t2.ID = t1.ID);
+
+-- TRAP 2: Implicit conversion in JOIN
+SELECT * FROM Orders o
+JOIN Customers c ON o.CustomerID = c.CustomerID
+WHERE o.CustomerID = '123';  -- If CustomerID is INT, this causes scan
+
+-- SOLUTION:
+SELECT * FROM Orders o
+JOIN Customers c ON o.CustomerID = c.CustomerID
+WHERE o.CustomerID = 123;  -- Match data types
+
+-- TRAP 3: GROUP BY with SELECT star
+SELECT * FROM Employees
+GROUP BY Department;  -- Error: Non-aggregated columns not in GROUP BY
+
+-- SOLUTION:
+SELECT Department, COUNT(*) FROM Employees
+GROUP BY Department;
+4. Practical / Interview Example
+Problem: Solve a complex interview question with multiple traps.
+
+Solution:
+
+sql
+/*
+    INTERVIEW QUESTION:
+    "Find customers who have ordered every product in category 'Electronics'"
+    
+    TRAPS:
+    1. NULL handling in subqueries
+    2. Division by zero
+    3. Duplicate orders counting
+    4. Performance with EXISTS vs COUNT
+*/
+
+-- WRONG APPROACH (common mistakes):
+SELECT 
+    c.CustomerID,
+    c.CompanyName
+FROM Customers c
+WHERE (
+    SELECT COUNT(DISTINCT p.ProductID)
+    FROM Products p
+    WHERE p.Category = 'Electronics'
+) = (
+    SELECT COUNT(DISTINCT od.ProductID)
+    FROM Orders o
+    JOIN OrderDetails od ON o.OrderID = od.OrderID
+    JOIN Products p ON od.ProductID = p.ProductID
+    WHERE o.CustomerID = c.CustomerID
+        AND p.Category = 'Electronics'
+);
+-- Problems: 
+-- 1. What if no electronics products? Division by zero logic issue
+-- 2. COUNT(DISTINCT) can be expensive
+-- 3. Correlated subquery for each customer
+
+-- BETTER APPROACH (using NOT EXISTS):
+SELECT 
+    c.CustomerID,
+    c.CompanyName
+FROM Customers c
+WHERE NOT EXISTS (
+    -- Find electronics products this customer hasn't ordered
+    SELECT p.ProductID
+    FROM Products p
+    WHERE p.Category = 'Electronics'
+        AND NOT EXISTS (
+            SELECT 1
+            FROM Orders o
+            JOIN OrderDetails od ON o.OrderID = od.OrderID
+            WHERE o.CustomerID = c.CustomerID
+                AND od.ProductID = p.ProductID
+        )
+);
+
+-- BEST APPROACH (using aggregation and CTE):
+WITH 
+    ElectronicsProducts AS (
+        SELECT ProductID
+        FROM Products
+        WHERE Category = 'Electronics'
+    ),
+    CustomerElectronics AS (
+        SELECT 
+            o.CustomerID,
+            COUNT(DISTINCT od.ProductID) AS ElectronicsProductsOrdered
+        FROM Orders o
+        JOIN OrderDetails od ON o.OrderID = od.OrderID
+        WHERE od.ProductID IN (SELECT ProductID FROM ElectronicsProducts)
+        GROUP BY o.CustomerID
+    ),
+    TotalElectronics AS (
+        SELECT COUNT(*) AS TotalProducts
+        FROM ElectronicsProducts
+    )
+SELECT 
+    c.CustomerID,
+    c.CompanyName,
+    ce.ElectronicsProductsOrdered,
+    te.TotalProducts
+FROM Customers c
+JOIN CustomerElectronics ce ON c.CustomerID = ce.CustomerID
+CROSS JOIN TotalElectronics te
+WHERE ce.ElectronicsProductsOrdered = te.TotalProducts
+    AND te.TotalProducts > 0;  -- Handle empty electronics category
+
+-- ALTERNATIVE: Using GROUP BY and HAVING
+SELECT 
+    o.CustomerID,
+    c.CompanyName,
+    COUNT(DISTINCT od.ProductID) AS ElectronicsProductsOrdered
+FROM Orders o
+JOIN OrderDetails od ON o.OrderID = od.OrderID
+JOIN Products p ON od.ProductID = p.ProductID
+JOIN Customers c ON o.CustomerID = c.CustomerID
+WHERE p.Category = 'Electronics'
+GROUP BY o.CustomerID, c.CompanyName
+HAVING COUNT(DISTINCT od.ProductID) = (
+    SELECT COUNT(*) 
+    FROM Products 
+    WHERE Category = 'Electronics'
+);
+5. Important Notes / Common Mistakes
+
+NULL traps: Use EXISTS instead of IN with possible NULLs
+
+Performance: Avoid correlated subqueries in SELECT
+
+Division by zero: Always check denominator
+
+Data types: Match types in comparisons
+
+Duplicate data: Use DISTINCT when needed
+
+Common interview traps to know:
+
+WHERE column = NULL instead of IS NULL
+NOT IN with NULLs in subquery
+Implicit conversion causing scans
+GROUP BY including non-aggregated columns
+Forgetting NULLs in aggregate functions
+Conclusion
+This comprehensive guide covers Microsoft SQL Server from fundamental concepts to advanced techniques. Key takeaways:
+
+For Beginners:
+Start with SELECT, WHERE, ORDER BY - the foundation
+
+Master JOINs for combining data from multiple tables
+
+Understand GROUP BY and HAVING for aggregation
+
+Practice NULL handling - it's crucial in real-world data
+
+For Intermediate Users:
+Learn Window Functions (ROW_NUMBER, RANK, LAG/LEAD)
+
+Use CTEs for complex query breakdown
+
+Master CASE statements for conditional logic
+
+Understand Subquery optimization
+
+For Advanced Users:
+Optimize with proper indexing strategies
+
+Handle gaps and islands problems
+
+Use recursive CTEs for hierarchical data
+
+Implement performance best practices
+
+Real-World Application:
+Always test with realistic data volumes
+
+Consider indexing costs (slower writes)
+
+Use query execution plans for optimization
+
+Document complex queries for team collaboration
+
+Implement error handling in production scripts
+
+Interview Preparation:
+Practice NULL handling scenarios
+
+Know JOIN types and their differences
+
+Be ready for performance tuning questions
+
+Understand indexing strategies
+
+Practice complex business logic in SQL
+
+Remember: The best way to learn SQL is through practice. Build projects, analyze real datasets, and continually challenge yourself with more complex problems. SQL is not just about writing queries—it's about solving business problems with data.
+
+This guide serves as both a learning resource and a reference. Bookmark it, practice the examples, and refer back to specific topics as needed in your SQL journey.

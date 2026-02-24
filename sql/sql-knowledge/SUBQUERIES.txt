@@ -1,0 +1,86 @@
+SUBQUERIES
+Single-row subquery
+1. Concept Explanation
+
+What it is: Subquery that returns exactly one row and one column (scalar value).
+
+Why it is needed: To use a single value from subquery in comparisons or calculations.
+
+Where it is used: Comparing against averages, maximums, or other single values.
+
+2. Syntax (MSSQL)
+
+sql
+-- In WHERE clause
+SELECT columns
+FROM table
+WHERE column operator (SELECT single_column FROM table WHERE condition);
+
+-- In SELECT clause  
+SELECT column1, (SELECT single_column FROM table WHERE condition) AS Alias
+FROM table;
+3. Simple Example
+
+sql
+-- Employees earning more than average salary
+SELECT EmployeeName, Salary
+FROM Employees
+WHERE Salary > (SELECT AVG(Salary) FROM Employees);
+
+-- Product with highest price
+SELECT ProductName, Price
+FROM Products
+WHERE Price = (SELECT MAX(Price) FROM Products);
+
+-- Scalar subquery in SELECT
+SELECT 
+    OrderID,
+    TotalAmount,
+    (SELECT AVG(TotalAmount) FROM Orders) AS AverageOrderValue,
+    TotalAmount - (SELECT AVG(TotalAmount) FROM Orders) AS DifferenceFromAverage
+FROM Orders;
+4. Practical / Interview Example
+Problem: Find the employee with the second highest salary without using TOP or LIMIT.
+
+Solution:
+
+sql
+-- Method 1: Using MAX with subquery
+SELECT EmployeeID, FirstName, LastName, Salary
+FROM Employees
+WHERE Salary = (
+    SELECT MAX(Salary) 
+    FROM Employees 
+    WHERE Salary < (SELECT MAX(Salary) FROM Employees)
+);
+
+-- Method 2: Using correlated subquery
+SELECT EmployeeID, FirstName, LastName, Salary
+FROM Employees e1
+WHERE 1 = (
+    SELECT COUNT(DISTINCT Salary)
+    FROM Employees e2
+    WHERE e2.Salary > e1.Salary
+);
+5. Important Notes / Common Mistakes
+
+Must return exactly one row and one column
+
+Use = for equality comparison (not IN)
+
+Returns NULL if subquery returns no rows
+
+Use IS NOT NULL check if subquery might return NULL
+
+Common mistake: Assuming subquery returns one row when it might return multiple
+
+sql
+-- ERROR: If multiple employees have same max salary
+SELECT EmployeeName, Salary
+FROM Employees
+WHERE Salary = (SELECT MAX(Salary) FROM Employees); -- Works if MAX is unique
+
+-- BETTER: Use IN for multiple possible values
+SELECT EmployeeName, Salary
+FROM Employees
+WHERE Salary IN (SELECT MAX(Salary) FROM Employees);

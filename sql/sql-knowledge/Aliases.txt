@@ -1,0 +1,74 @@
+Aliases
+1. Concept Explanation
+
+What it is: Aliases give temporary names to tables or columns for readability.
+
+Why it is needed: To make queries more readable, especially with joins, subqueries, and calculations.
+
+Where it is used: Complex queries, reports, queries with calculations or multiple table joins.
+
+2. Syntax (MSSQL)
+
+sql
+-- Column alias
+SELECT column_name AS alias_name
+FROM table_name;
+
+-- Table alias
+SELECT t.column1, t.column2
+FROM table_name AS t;
+
+-- Without AS keyword (also valid)
+SELECT column_name alias_name
+FROM table_name;
+3. Simple Example
+
+sql
+-- Column aliases
+SELECT 
+    FirstName AS 'First Name',
+    LastName AS 'Last Name',
+    Salary * 12 AS AnnualSalary,
+    GETDATE() AS QueryDate
+FROM Employees;
+
+-- Table aliases
+SELECT e.FirstName, d.DepartmentName
+FROM Employees AS e
+INNER JOIN Departments AS d ON e.DeptID = d.DeptID;
+
+-- Aliases for expressions
+SELECT 
+    Quantity * UnitPrice AS LineTotal,
+    LineTotal * 0.1 AS Tax -- ERROR: Can't use alias in same SELECT
+FROM OrderDetails;
+4. Practical / Interview Example
+Problem: Write a query showing employee full name, department name, and manager name using aliases for all tables.
+
+Solution:
+
+sql
+SELECT 
+    e.EmployeeID,
+    e.FirstName + ' ' + e.LastName AS EmployeeName,
+    d.DepartmentName AS Department,
+    m.FirstName + ' ' + m.LastName AS ManagerName,
+    DATEDIFF(YEAR, e.HireDate, GETDATE()) AS YearsOfService
+FROM Employees e
+LEFT JOIN Departments d ON e.DeptID = d.DeptID
+LEFT JOIN Employees m ON e.ManagerID = m.EmployeeID
+WHERE e.Active = 1
+ORDER BY EmployeeName;
+5. Important Notes / Common Mistakes
+
+Aliases exist only for query duration
+
+Can't use column alias in WHERE clause (SQL processes WHERE before SELECT)
+
+Can use column alias in ORDER BY clause
+
+Table aliases are required for self-joins
+
+Use meaningful aliases: 'emp' for Employees, 'dept' for Departments
+
+Common mistake: Using reserved words as aliases without brackets

@@ -1,0 +1,62 @@
+ORDER BY
+1. Concept Explanation
+
+What it is: ORDER BY sorts the result set in ascending or descending order.
+
+Why it is needed: To organize query results in a meaningful sequence for analysis or presentation.
+
+Where it is used: Reports, dashboards, data exports, pagination.
+
+2. Syntax (MSSQL)
+
+sql
+SELECT columns
+FROM table
+[WHERE conditions]
+ORDER BY column1 [ASC|DESC], column2 [ASC|DESC], ...;
+-- ASC (ascending) is default
+3. Simple Example
+
+sql
+-- Single column sort
+SELECT * FROM Products
+ORDER BY Price DESC;
+
+-- Multiple column sort
+SELECT FirstName, LastName, Department, Salary
+FROM Employees
+ORDER BY Department ASC, Salary DESC;
+
+-- Sort by column position (not recommended)
+SELECT FirstName, LastName, Salary
+FROM Employees
+ORDER BY 3 DESC; -- Sorts by Salary (3rd column)
+4. Practical / Interview Example
+Problem: Display products sorted by category in alphabetical order, then by price from highest to lowest within each category, and finally by product name.
+
+Solution:
+
+sql
+SELECT 
+    ProductID,
+    ProductName,
+    Category,
+    Price,
+    StockQuantity
+FROM Products
+WHERE StockQuantity > 0
+ORDER BY 
+    Category ASC,
+    Price DESC,
+    ProductName ASC;
+5. Important Notes / Common Mistakes
+
+NULLs are considered lowest values in ASC order
+
+Sorting large datasets can be slow - add indexes on sort columns
+
+Can sort by columns not in SELECT list
+
+Use column names instead of positions for maintainability
+
+Common mistake: Forgetting that ORDER BY executes after SELECT, so aliases can be used

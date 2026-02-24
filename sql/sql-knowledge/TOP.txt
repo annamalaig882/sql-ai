@@ -1,0 +1,70 @@
+TOP
+1. Concept Explanation
+
+What it is: TOP limits the number of rows returned by a query.
+
+Why it is needed: For pagination, sampling data, or getting top N records.
+
+Where it is used: Dashboards (show top sellers), reports (top performers), data sampling.
+
+2. Syntax (MSSQL)
+
+sql
+-- Fixed number
+SELECT TOP n [PERCENT] column1, column2, ...
+FROM table
+[ORDER BY ...];
+
+-- With ties (includes rows with same values)
+SELECT TOP n WITH TIES column1, column2, ...
+FROM table
+ORDER BY column;
+3. Simple Example
+
+sql
+-- Get top 10 highest paid employees
+SELECT TOP 10 FirstName, LastName, Salary
+FROM Employees
+ORDER BY Salary DESC;
+
+-- Top 5% of products by price
+SELECT TOP 5 PERCENT ProductName, Price
+FROM Products
+ORDER BY Price DESC;
+
+-- Top 3 with ties
+SELECT TOP 3 WITH TIES ProductName, Price
+FROM Products
+ORDER BY Price DESC;
+4. Practical / Interview Example
+Problem: Get the second highest salary from employees table without using subquery in WHERE clause.
+
+Solution:
+
+sql
+-- Method 1: Using TOP with OFFSET-FETCH (SQL Server 2012+)
+SELECT DISTINCT Salary
+FROM Employees
+ORDER BY Salary DESC
+OFFSET 1 ROWS
+FETCH NEXT 1 ROWS ONLY;
+
+-- Method 2: Using TOP in subquery
+SELECT TOP 1 Salary
+FROM (
+    SELECT DISTINCT TOP 2 Salary
+    FROM Employees
+    ORDER BY Salary DESC
+) AS SecondHighest
+ORDER BY Salary ASC;
+5. Important Notes / Common Mistakes
+
+Always use ORDER BY with TOP for predictable results
+
+TOP with PERCENT returns approximate number of rows
+
+WITH TIES includes all rows matching the last value
+
+Use DISTINCT with TOP if you want unique values
+
+Common mistake: Forgetting ORDER BY, getting random top rows
